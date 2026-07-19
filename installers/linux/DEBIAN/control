@@ -1,0 +1,22 @@
+Package: ai-orchestrator
+Version: 1.0.0
+Section: utils
+Priority: optional
+Architecture: all
+Depends: python3 (>= 3.10), python3-pip, python3-venv, curl, ca-certificates
+Recommends: ollama, nodejs
+Suggests: docker.io, podman
+Maintainer: pop31-ai <ai@orchestrator.local>
+Description: Local AI agent orchestration with free models
+ Multi-provider AI orchestration system that works with
+ free AI models (Ollama, Groq, OpenRouter, LM Studio).
+ Supports agent capabilities for computer interaction,
+ file operations, and network tools.
+ .
+ Особенности:
+  - Работа с локальными и облачными AI моделями
+  - Агент с инструментами (shell, файлы, web)
+  - Виртуальный скролл для историй 10k+ сообщений
+  - Горячее переключение провайдеров/моделей
+  - Персистентные сессии с экспортом
+Homepage: https://github.com/pop31-ai/ai-orchestrator

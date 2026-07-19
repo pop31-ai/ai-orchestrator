@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=AI Orchestrator
+Comment=Local AI agent orchestration with free models
+Comment[ru]=Локальная оркестрация AI агентов с бесплатными моделями
+GenericName=AI Chat
+GenericName[ru]=AI Чат
+Keywords=ai;chat;llm;ollama;
+Exec=ai-orchestrator chat
+Terminal=true
+Type=Application
+Icon=ai-orchestrator
+Categories=Utility;ArtificialIntelligence;Network;
+StartupNotify=false
+MimeType=x-scheme-handler/ai-orchestrator;

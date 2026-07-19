@@ -11,7 +11,51 @@ A powerful local AI agent orchestration system that works with free AI models (O
 - **Session management**: Persistent sessions with export/import
 - **CLI & API**: Interactive CLI, FastAPI web server, WebSocket support
 
-## Quick Start (Windows)
+## Quick Start
+
+### Windows
+```powershell
+# Одно касание (PowerShell Admin):
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+irm https://github.com/pop31-ai/ai-orchestrator/releases/latest/download/install.ps1 | iex
+
+# Или вручную:
+.\installers\install.ps1                           # Интерактивно
+.\installers\install.ps1 -InstallOllama -PullModel  # С Ollama
+```
+
+### Linux / Astra Linux
+```bash
+# curl одной строкой:
+bash <(curl -fsSL https://github.com/pop31-ai/ai-orchestrator/raw/main/installers/linux/install.sh)
+
+# Или .deb пакет:
+bash installers/linux/build-deb.sh
+sudo dpkg -i installers/linux/dist/ai-orchestrator_1.0.0_all.deb
+
+# systemd сервис:
+systemctl --user start ai-orchestrator   # http://localhost:8080
+```
+
+### Android 8 / 11+
+```bash
+# В Termux (F-Droid):
+pkg install curl -y
+curl -fsSL https://github.com/pop31-ai/ai-orchestrator/raw/main/installers/android/install-termux.sh | bash
+
+# Автозапуск:
+bash installers/android/termux-autostart.sh chat   # чат при старте
+bash installers/android/termux-autostart.sh serve  # сервер в фоне
+```
+
+### pip (любая платформа)
+```bash
+git clone https://github.com/pop31-ai/ai-orchestrator
+cd ai-orchestrator
+pip install -e .
+```
+
+### Pull free AI models
 
 ### Вариант 1: Одно касание (рекомендуется)
 ```powershell

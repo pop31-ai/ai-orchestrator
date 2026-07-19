@@ -1,0 +1,20 @@
+#!/bin/bash
+# postrm — очистка после удаления
+set -e
+
+APP_DIR="/usr/share/ai-orchestrator"
+VENV_DIR="$APP_DIR/venv"
+
+if [ "$1" = "purge" ]; then
+    echo " [*] Полная очистка..."
+
+    # Удалить venv
+    if [ -d "$VENV_DIR" ]; then
+        rm -rf "$VENV_DIR"
+        echo " [+] Виртуальное окружение удалено"
+    fi
+
+    # Опционально: удалить данные пользователя
+    echo " [*] Данные пользователя в ~/.ai_orchestrator не тронуты"
+    echo "    Чтобы удалить: rm -rf ~/.ai_orchestrator"
+fi

@@ -1,0 +1,13 @@
+#!/bin/bash
+# prerm — удаление
+set -e
+
+APP_DIR="/usr/share/ai-orchestrator"
+
+echo " [*] AI Orchestrator: удаление..."
+
+# Остановить сервис
+systemctl --user stop ai-orchestrator 2>/dev/null || true
+systemctl --user disable ai-orchestrator 2>/dev/null || true
+
+echo " [+] Сервис остановлен"

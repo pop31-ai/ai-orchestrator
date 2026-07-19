@@ -1,0 +1,54 @@
+#!/bin/bash
+# postinst — настройка после установки пакета
+set -e
+
+APP_DIR="/usr/share/ai-orchestrator"
+VENV_DIR="$APP_DIR/venv"
+
+echo " [+] AI Orchestrator: настройка..."
+
+# --- 1. Виртуальное окружение ---
+if [ ! -d "$VENV_DIR" ]; then
+    echo " [*] Создание виртуального окружения..."
+    python3 -m venv "$VENV_DIR"
+fi
+
+echo " [*] Установка зависимостей..."
+"$VENV_DIR/bin/pip" install --upgrade pip -q
+"$VENV_DIR/bin/pip" install -e "$APP_DIR" -q
+echo " [+] Зависимости установлены"
+
+# --- 2. Директории данных ---
+mkdir -p /etc/ai-orchestrator
+mkdir -p /var/lib/ai-orchestrator
+mkdir -p /var/log/ai-orchestrator
+chmod 755 /etc/ai-orchestrator
+chmod 755 /var/lib/ai-orchestrator
+chmod 755 /var/log/ai-orchestrator
+
+# --- 3. Проверка Python и Ollama ---
+PY_VER=$(python3 --version 2>&1)
+echo " [*] $PY_VER"
+
+if command -v ollama &>/dev/null; then
+    echo " [+] Ollama: $(ollama --version 2>&1)"
+else
+    echo " [*] Ollama не найден. Установите: curl -fsSL https://ollama.com/install.sh | sh"
+fi
+
+# --- 4. systemd user service ---
+systemctl --user daemon-reload 2>/dev/null || true
+
+echo " [+] Установка завершена!"
+echo ""
+echo "  Быстрый старт:"
+echo "    ai-orchestrator chat              # Интерактивный чат"
+echo "    ai-orchestrator providers         # Список провайдеров"
+echo ""
+echo "  Веб-сервер:"
+echo "    systemctl --user start ai-orchestrator"
+echo "    http://localhost:8080"
+echo ""
+echo "  Если Ollama не запущен:"
+echo "    ollama serve"
+echo "    ollama pull qwen2.5:1.5b"

@@ -1,0 +1,23 @@
+[Unit]
+Description=AI Orchestrator — Local AI agent web server
+Documentation=https://github.com/pop31-ai/ai-orchestrator
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+ExecStart=/usr/share/ai-orchestrator/venv/bin/python -m ai_orchestrator serve
+WorkingDirectory=/usr/share/ai-orchestrator
+Restart=on-failure
+RestartSec=5
+User=%i
+Environment="PYTHONUNBUFFERED=1"
+
+# Безопасность (Astra Linux)
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
