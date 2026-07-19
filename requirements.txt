@@ -1,0 +1,9 @@
+aiohttp>=3.9.0
+pydantic>=2.6.0
+pydantic-settings>=2.1.0
+pyyaml>=6.0
+rich>=13.7.0
+click>=8.1.0
+prompt-toolkit>=3.0.0
+sqlite-utils>=3.30.0
+python-dotenv>=1.0.0
