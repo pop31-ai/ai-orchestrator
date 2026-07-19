@@ -11,54 +11,53 @@ A powerful local AI agent orchestration system that works with free AI models (O
 - **Session management**: Persistent sessions with export/import
 - **CLI & API**: Interactive CLI, FastAPI web server, WebSocket support
 
-## Quick Start
+## Quick Start (Windows)
 
-### Prerequisites
+### Вариант 1: Одно касание (рекомендуется)
+```powershell
+# Откройте PowerShell от имени администратора и выполните:
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+irm https://github.com/pop31-ai/ai-orchestrator/releases/latest/download/install.ps1 | iex
+```
+Или вручную:
+```powershell
+.\installers\install.ps1                           # Интерактивная установка
+.\installers\install.ps1 -InstallOllama -PullModel  # С Ollama и моделью
+.\installers\install.ps1 -NoPath -NoContextMenu     # Без интеграции в систему
+```
+Скрипт сам установит Python (если нет), создаст venv, добавит в PATH, добавит пункт в контекстное меню.
 
-- Python 3.10+
-- [Ollama](https://ollama.ai/) (for local models) or API keys for cloud providers
+### Вариант 2: Inno Setup (exe-инсталятор)
+Скачайте `AI-Orchestrator-1.0.0-Setup.exe` из [Release](https://github.com/pop31-ai/ai-orchestrator/releases) и запустите.
 
-### Installation
+Сборка из исходников:
+```powershell
+.\installers\build.ps1              # Собрать все пакеты
+.\installers\build.ps1 -SkipInno    # Только ZIP (без Inno Setup)
+```
+Требуется [Inno Setup 6](https://jrsoftware.org/isdl.php): `winget install JRSoftware.InnoSetup`
 
+### Вариант 3: pip / ручная установка
 ```bash
-# Install from source
-git clone https://github.com/yourname/ai-orchestrator
+git clone https://github.com/pop31-ai/ai-orchestrator
 cd ai-orchestrator
 pip install -e .
-
-# Or install dependencies only
-pip install -r requirements.txt
 ```
 
-### Pull some free models
-
+После установки:
 ```bash
-# Small fast models
-ollama pull qwen2.5:1.5b
-ollama pull phi3.5:3.8b
-ollama pull gemma2:2b
-
-# Code models
-ollama pull qwen2.5-coder:7b
-ollama pull deepseek-coder:6.7b
+ai-orchestrator chat             # Интерактивный чат
+ai-orchestrator providers        # Список провайдеров
+ai-orchestrator config           # Показать конфиг
 ```
 
-### Run the CLI
-
+### Pull free AI models
 ```bash
-ai-orchestrator
-
-# Or with options
-ai-orchestrator --provider ollama_local --model qwen2.5:1.5b --debug
+# Установите Ollama и скачайте бесплатные модели:
+ollama pull qwen2.5:1.5b         # 1.1 GB — быстрый чат
+ollama pull phi3.5:3.8b          # 2.2 GB — общая
+ollama pull qwen2.5-coder:7b     # 4.7 GB — код
 ```
-
-### Start the web server
-
-```bash
-ai-orchestrator serve --port 8080
-```
-
-Then open http://localhost:8080
 
 ## Configuration
 
@@ -119,21 +118,26 @@ export HF_TOKEN=your_token
 
 ```
 ai_orchestrator/
-├── config.py          # Configuration management
-├── providers.py       # AI provider abstractions
-├── agent.py           # Agent orchestration
-├── history.py         # History & virtual scrolling
-├── tools/             # Built-in tools
-│   ├── __init__.py
-│   ├── shell.py       # Shell commands
-│   ├── file_ops.py    # File read/write/edit
-│   └── web.py         # Web search/fetch
-├── orchestrator.py    # Main application
-├── __main__.py        # CLI entry point
-└── api/               # FastAPI web server
-    ├── main.py
-    ├── routes/
-    └── websocket.py
+├── __init__.py          # Пакет, public API
+├── __main__.py          # CLI точка входа (click)
+├── config.py            # Конфигурация (провайдеры, агент, история, UI)
+├── providers.py         # Абстракции AI-провайдеров (Ollama, OpenAI)
+├── agent.py             # Система агентов, инструменты, оркестрация
+├── orchestrator.py      # Главный класс приложения AIOrchestrator
+├── history.py           # История (SQLite), виртуальный скролл
+├── tools/
+│   └── __init__.py      # Встроенные инструменты (shell, файлы, grep)
+
+installers/
+├── install.ps1                  # Установка одним скриптом
+├── build.ps1                    # Сборка инсталятора
+├── ai-orchestrator-installer.iss # Inno Setup скрипт
+├── ai-orchestrator.bat          # Быстрый запуск
+├── launch.bat / launch.ps1      # Лаунчеры с venv
+├── install_deps.ps1             # Установка зависимостей
+├── windows-integration.ps1      # PATH + контекстное меню + Terminal
+├── terminal-profile.json        # Профиль Windows Terminal
+└── generate-icon.ps1            # Генерация иконки
 ```
 
 ## Agent Tools
@@ -146,6 +150,30 @@ Built-in tools available to agents:
 - `file_list` - List directories
 - `file_glob` - Find files
 - `file_grep` - Search in files
+
+## Windows Integration
+
+После установки доступны:
+
+**Контекстное меню:** ПКМ в любой папке → "AI Orchestrator chat"
+
+**PATH:** Команда `ai-orchestrator` доступна из любого терминала
+
+**Windows Terminal:** Профиль "AI Orchestrator" в выпадающем списке
+
+```powershell
+# Добавить в PATH
+.\installers\windows-integration.ps1 -AddToPath
+
+# Добавить контекстное меню
+.\installers\windows-integration.ps1 -AddContextMenu
+
+# Добавить профиль Terminal
+.\installers\windows-integration.ps1 -AddTerminalProfile
+
+# Удалить
+.\installers\windows-integration.ps1 -RemoveFromPath -RemoveContextMenu
+```
 
 ## Web API
 

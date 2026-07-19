@@ -1,0 +1,14 @@
+{
+    "name": "AI Orchestrator",
+    "commandline": "ai-orchestrator.bat chat",
+    "icon": "%APP_DIR%\\ai-orchestrator.bat",
+    "startingDirectory": "%APP_DIR%",
+    "colorScheme": "Campbell",
+    "font": {
+        "face": "Cascadia Code",
+        "size": 10
+    },
+    "cursorShape": "bar",
+    "antialiasingMode": "cleartype",
+    "hidden": false
+}

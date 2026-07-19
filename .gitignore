@@ -26,4 +26,9 @@ Thumbs.db
 *.egg-info/
 dist/
 build/
+ai_orchestrator.egg-info/
 .ai_orchestrator/
+installers/*.exe
+installers/*.ico
+installers/dist/
+installers/tools/
