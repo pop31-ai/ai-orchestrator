@@ -38,6 +38,30 @@ systemctl --user start ai-orchestrator   # http://localhost:8080
 ```
 
 ### Android 8 / 11+
+
+**Готовый APK:** Скачайте из [Releases](https://github.com/pop31-ai/ai-orchestrator/releases):
+- `AI-Orchestrator-android8-release.apk` — Android 8 (API 26) +
+- `AI-Orchestrator-android11-release.apk` — Android 11 (API 30) +
+
+**Сборка APK из исходников:**
+```bash
+# Требуется: Android SDK, JDK 17, Gradle 8.5
+
+# Linux:
+bash installers/android/apk/build-apk.sh release
+
+# Windows PowerShell:
+.\installers\android\apk\build-apk.ps1 -Release
+
+# Docker:
+cd installers/android/apk
+docker build -t ai-orchestrator-apk .
+docker run --rm -v $(pwd)/dist:/app/dist ai-orchestrator-apk
+```
+
+**GitHub Actions:** Автосборка при пуше тега `v*`. Скачать APK → Actions → Build APK → Artifacts.
+
+**Установка через Termux (альтернатива):**
 ```bash
 # В Termux (F-Droid):
 pkg install curl -y

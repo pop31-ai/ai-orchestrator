@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AI Orchestrator</string>
+    <string name="app_name_short">AI Orc</string>
+    <string name="start_chat">Начать чат</string>
+    <string name="settings">Настройки</string>
+    <string name="send">Отправить</string>
+    <string name="clear_history">Очистить историю</string>
+    <string name="provider_embedded">Встроенная</string>
+    <string name="provider_groq">Groq</string>
+    <string name="provider_openrouter">OpenRouter</string>
+</resources>

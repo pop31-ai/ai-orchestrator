@@ -35,4 +35,8 @@ installers/tools/
 installers/linux/dist/
 installers/android/dist/
 installers/linux/venv/
+installers/android/apk/.gradle/
+installers/android/apk/app/build/
+installers/android/apk/local.properties
 *.deb
+*.apk
