@@ -1,0 +1,29 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Shell scripts — сохранять LF и exec permission
+*.sh text eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# Linux specific — LF endings
+*.service text eol=lf
+*.desktop text eol=lf
+DEBIAN/* text eol=lf
+usr/bin/* text eol=lf
+
+# Python
+*.py text diff=python
+
+# Markdown
+*.md text
+
+# Config
+*.json text
+*.toml text
+*.iss text
+
+# Binary
+*.ico binary
+*.png binary
+*.exe binary
