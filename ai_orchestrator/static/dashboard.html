@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orchestrator Dashboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#c9d1d9;--dim:#8b949e;--accent:#58a6ff;--green:#3fb950;--yellow:#d29922;--red:#f85149}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);padding:24px}
+h1{font-size:20px;margin-bottom:20px;background:linear-gradient(135deg,#58a6ff,#bc8cff);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-bottom:24px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px}
+.card h2{font-size:13px;color:var(--dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+.card .big{font-size:36px;font-weight:700}
+.card .big.green{color:var(--green)}
+.card .big.blue{color:var(--accent)}
+.card .big.yellow{color:var(--yellow)}
+.card .big.red{color:var(--red)}
+.bar{height:8px;border-radius:4px;background:var(--border);overflow:hidden;margin-top:8px}
+.bar-fill{height:100%;border-radius:4px;transition:width .3s}
+.bar-fill.green{background:var(--green)}
+.bar-fill.yellow{background:var(--yellow)}
+.bar-fill.red{background:var(--red)}
+.agent-list{margin-top:8px}
+.agent-item{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.agent-item:last-child{border:none}
+.agent-name{color:var(--accent)}
+.agent-status{color:var(--dim)}
+.actions{display:flex;gap:10px;margin-bottom:24px}
+.actions button{padding:8px 18px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-size:13px}
+.actions button:hover{background:var(--accent);color:#0d1117;border-color:var(--accent)}
+.pipeline textarea{width:100%;height:80px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:10px;font-family:monospace;font-size:12px;resize:vertical}
+.pipeline textarea:focus{outline:none;border-color:var(--accent)}
+.queue-list{font-size:12px;color:var(--dim);margin-top:8px;font-family:monospace}
+.refresh-info{color:var(--dim);font-size:11px;margin-top:4px}
+</style>
+</head>
+<body>
+<h1>Orchestrator Dashboard</h1>
+<div class="grid" id="statsGrid"></div>
+<div class="actions">
+  <button onclick="fetchStatus()">Refresh</button>
+  <button onclick="cleanupIdle()">Cleanup Idle</button>
+</div>
+<h2 style="font-size:14px;margin-bottom:10px;color:var(--dim)">Active Agents</h2>
+<div id="agentList" class="agent-list"></div>
+<div class="refresh-info" id="refreshInfo"></div>
+
+<script>
+async function fetchStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const s = await res.json();
+    renderStats(s);
+
+    const agents = await (await fetch('/api/agents')).json();
+    renderAgents(agents);
+
+    document.getElementById('refreshInfo').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    document.getElementById('refreshInfo').textContent = 'Error: ' + e.message;
+  }
+}
+
+function renderStats(s) {
+  const grid = document.getElementById('statsGrid');
+  grid.innerHTML = `
+    <div class="card"><h2>Active Chats</h2><div class="big blue">${s.active_chats}</div></div>
+    <div class="card"><h2>Queue Size</h2><div class="big ${s.queue_size > 0 ? 'yellow' : 'green'}">${s.queue_size}</div></div>
+    <div class="card"><h2>Workers</h2><div class="big blue">${s.concurrent_workers}</div><div style="font-size:12px;color:var(--dim)">Max 4 concurrent</div></div>
+    <div class="card"><h2>Semaphore</h2><div class="big blue">${s.semaphore_available}</div><div style="font-size:12px;color:var(--dim)">Slots free</div></div>
+    <div class="card">
+      <h2>CPU</h2>
+      <div class="big ${s.cpu_percent > 70 ? 'red' : s.cpu_percent > 40 ? 'yellow' : 'green'}">${s.cpu_percent}%</div>
+      <div class="bar"><div class="bar-fill ${s.cpu_percent > 70 ? 'red' : s.cpu_percent > 40 ? 'yellow' : 'green'}" style="width:${s.cpu_percent}%"></div></div>
+    </div>
+    <div class="card">
+      <h2>Memory</h2>
+      <div class="big ${s.memory_percent > 80 ? 'red' : s.memory_percent > 50 ? 'yellow' : 'green'}">${s.memory_percent}%</div>
+      <div class="bar"><div class="bar-fill ${s.memory_percent > 80 ? 'red' : s.memory_percent > 50 ? 'yellow' : 'green'}" style="width:${s.memory_percent}%"></div></div>
+    </div>
+  `;
+}
+
+function renderAgents(agents) {
+  const list = document.getElementById('agentList');
+  list.innerHTML = '';
+  for (const name of Object.keys(agents.agents || {})) {
+    const active = agents.active && agents.active.includes(name) ? '🟢 active' : '🔵 available';
+    const div = document.createElement('div');
+    div.className = 'agent-item';
+    div.innerHTML = `<span class="agent-name">${name}</span><span class="agent-status">${active}</span>`;
+    list.appendChild(div);
+  }
+}
+
+async function cleanupIdle() {
+  try {
+    const res = await fetch('/api/cleanup?minutes=1');
+    const data = await res.json();
+    document.getElementById('refreshInfo').textContent = `Cleaned ${data.cleaned} agents. ${data.remaining} remaining.`;
+    fetchStatus();
+  } catch(e) {
+    document.getElementById('refreshInfo').textContent = 'Cleanup error: ' + e.message;
+  }
+}
+
+// Auto-refresh every 5s
+fetchStatus();
+setInterval(fetchStatus, 5000);
+</script>
+</body>
+</html>

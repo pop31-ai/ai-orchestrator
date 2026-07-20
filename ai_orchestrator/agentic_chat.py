@@ -797,6 +797,10 @@ class AgentChat:
 class Orchestrator:
     def __init__(self):
         self.chats: Dict[str, AgentChat] = {}
+        self._semaphore = asyncio.Semaphore(4)  # Max 4 concurrent tasks
+        self._queue = asyncio.Queue()
+        self._workers = 0
+        self._worker_tasks = []
 
     def create_chat(self, name: str, config: AgentConfig) -> AgentChat:
         self.chats[name] = AgentChat(config)
@@ -807,6 +811,63 @@ class Orchestrator:
 
     def list_chats(self) -> List[str]:
         return list(self.chats.keys())
+
+    async def enqueue(self, agent_name: str, message: str):
+        """Queue a task for async dispatch"""
+        await self._queue.put((agent_name, message))
+        if self._workers < 4:
+            self._workers += 1
+            task = asyncio.create_task(self._worker_loop())
+            self._worker_tasks.append(task)
+
+    async def _worker_loop(self):
+        """Worker: pulls tasks from queue, runs with semaphore"""
+        while not self._queue.empty():
+            agent_name, message = await self._queue.get()
+            chat = self.get_chat(agent_name)
+            if not chat:
+                continue
+            async with self._semaphore:
+                async for _ in chat.process(message):
+                    pass
+            self._queue.task_done()
+        self._workers -= 1
+
+    async def get_status(self) -> Dict:
+        """Resource usage and queue status"""
+        import psutil
+        try:
+            cpu = psutil.cpu_percent(interval=0.1)
+            mem = psutil.virtual_memory().percent
+        except Exception:
+            cpu = mem = 0
+        return {
+            "active_chats": len(self.chats),
+            "queue_size": self._queue.qsize(),
+            "concurrent_workers": self._workers,
+            "semaphore_available": self._semaphore._value,
+            "cpu_percent": cpu,
+            "memory_percent": mem,
+        }
+
+    async def cleanup_idle(self, max_idle_minutes: int = 5):
+        """Remove idle agent chats to free memory"""
+        now = datetime.now()
+        idle_names = []
+        for name, chat in self.chats.items():
+            if not chat.messages:
+                continue
+            last_msg = chat.messages[-1]
+            try:
+                ts = datetime.fromisoformat(last_msg["timestamp"])
+                if (now - ts).total_seconds() > max_idle_minutes * 60:
+                    idle_names.append(name)
+            except Exception:
+                continue
+        for name in idle_names:
+            chat = self.chats.pop(name, None)
+            if chat:
+                await chat.close()
 
     async def close_all(self):
         for chat in self.chats.values():
@@ -1684,6 +1745,24 @@ async def handle_new_agent(request):
     return web.json_response({"status": "created", "name": name})
 
 
+async def handle_cleanup(request):
+    minutes = int(request.query.get("minutes", 5))
+    orch = request.app["orchestrator"]
+    before = len(orch.chats)
+    await orch.cleanup_idle(max_idle_minutes=minutes)
+    return web.json_response({"cleaned": before - len(orch.chats), "remaining": len(orch.chats)})
+
+
+async def handle_status(request):
+    orch = request.app["orchestrator"]
+    status = await orch.get_status()
+    return web.json_response(status)
+
+
+async def handle_ui(request):
+    return web.FileResponse(Path(__file__).parent / "static" / "dashboard.html")
+
+
 def create_app() -> web.Application:
     app = web.Application()
     app["orchestrator"] = Orchestrator()
@@ -1699,6 +1778,9 @@ def create_app() -> web.Application:
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_get("/api/history", handle_history)
     app.router.add_post("/api/agent/new", handle_new_agent)
+    app.router.add_get("/api/status", handle_status)
+    app.router.add_get("/api/cleanup", handle_cleanup)
+    app.router.add_get("/dashboard", handle_ui)
     app.router.add_static("/static/", static_dir)
 
     async def cleanup(app):
