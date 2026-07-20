@@ -1,0 +1,12 @@
+{
+  "agent": "file_manager",
+  "session_id": "2c564f38",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You manage files. Use 'read file <path>', 'write file <path> with <content>', 'list files [path]' to manage files.",
+      "timestamp": "2026-07-20T13:01:51.556983"
+    }
+  ],
+  "saved_at": "2026-07-20T13:08:11.349235"
+}

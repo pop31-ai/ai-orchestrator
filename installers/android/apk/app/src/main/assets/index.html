@@ -251,22 +251,23 @@ input:checked + .slider:before { transform: translateX(22px); }
 </div>
 
 <div class="tabs" id="tabs">
-    <div class="tab active" data-tab="chat" onclick="switchTab('chat')">Чат</div>
-    <div class="tab" data-tab="settings" onclick="switchTab('settings')">Настройки</div>
-    <div class="tab" data-tab="about" onclick="switchTab('about')">О программе</div>
+    <div class="tab active" data-tab="chat" onclick="switchTab('chat')">Chat</div>
+    <div class="tab" data-tab="settings" onclick="switchTab('settings')">Settings</div>
+    <div class="tab" data-tab="setup" onclick="switchTab('setup')">Setup</div>
+    <div class="tab" data-tab="about" onclick="switchTab('about')">About</div>
 </div>
 
 <!-- Chat -->
 <div class="tab-content active" id="tab-chat">
     <div class="messages" id="messages">
         <div class="msg assistant">
-            Привет! Я AI Orchestrator на Android.
-            Напиши мне что-нибудь.
-            <div class="time">только что</div>
+            Hello! I'm AI Orchestrator on Android.
+            Send a message to start chatting.
+            <div class="time">Just now</div>
         </div>
     </div>
     <div class="input-area">
-        <textarea id="input" rows="1" placeholder="Напишите сообщение..." onkeydown="onInputKey(event)"></textarea>
+        <textarea id="input" rows="1" placeholder="Type a message..." onkeydown="onInputKey(event)"></textarea>
         <button onclick="sendMessage()">
             <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
@@ -277,25 +278,25 @@ input:checked + .slider:before { transform: translateX(22px); }
 <div class="tab-content" id="tab-settings">
     <div class="setting-item">
         <div>
-            <div class="label">Провайдер AI</div>
-            <div class="desc">Модель для ответов</div>
+            <div class="label">AI Provider</div>
+            <div class="desc">Backend to use</div>
         </div>
         <select id="providerSelect" onchange="setProvider(this.value)">
-            <option value="android_embedded">Встроенная (Android)</option>
+            <option value="android_embedded">Embedded (Android)</option>
             <option value="openrouter_free">OpenRouter Free</option>
             <option value="groq">Groq</option>
         </select>
     </div>
     <div class="setting-item">
         <div>
-            <div class="label">API уровень</div>
+            <div class="label">API Level</div>
             <div class="desc" id="apiLevelDisplay">Android 8 (API 26)</div>
         </div>
         <span id="apiLevelValue"></span>
     </div>
     <div class="setting-item">
         <div>
-            <div class="label">Тёмная тема</div>
+            <div class="label">Dark theme</div>
         </div>
         <label class="switch">
             <input type="checkbox" checked onchange="toggleTheme(this.checked)">
@@ -304,8 +305,8 @@ input:checked + .slider:before { transform: translateX(22px); }
     </div>
     <div class="setting-item">
         <div>
-            <div class="label">Потоковый режим</div>
-            <div class="desc">Получать ответ по токенам</div>
+            <div class="label">Streaming</div>
+            <div class="desc">Show responses in real-time</div>
         </div>
         <label class="switch">
             <input type="checkbox" checked id="streamToggle">
@@ -314,8 +315,8 @@ input:checked + .slider:before { transform: translateX(22px); }
     </div>
     <div class="setting-item">
         <div>
-            <div class="label">Фоновый сервис</div>
-            <div class="desc">Работа в фоне (Android 11+)</div>
+            <div class="label">Background service</div>
+            <div class="desc">Keep alive in background (Android 11+)</div>
         </div>
         <label class="switch">
             <input type="checkbox" id="bgService" onchange="toggleBgService(this.checked)">
@@ -324,19 +325,66 @@ input:checked + .slider:before { transform: translateX(22px); }
     </div>
     <div class="setting-item" style="justify-content:center;border:none;padding:20px 0;">
         <button onclick="clearHistory()" style="background:var(--error);color:white;border:none;padding:10px 24px;border-radius:8px;font-size:0.9rem;">
-            Очистить историю
+            Clear history
         </button>
+    </div>
+</div>
+
+<!-- Setup -->
+<div class="tab-content" id="tab-setup">
+    <h3 style="margin-bottom:12px;">Setup Guide</h3>
+    <div id="setupStatus" style="padding:8px 12px;border-radius:8px;margin-bottom:12px;background:var(--surface);">
+        <div id="setupStep">Checking connection...</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+        <div class="setup-card" style="background:var(--surface);border-radius:8px;padding:12px;border:1px solid var(--border);">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                <span style="width:20px;height:20px;border-radius:50%;background:#3fb950;display:flex;align-items:center;justify-content:center;font-size:12px;">1</span>
+                <b>Install Termux</b>
+            </div>
+            <div style="font-size:0.85rem;opacity:0.7;">Install Termux from F-Droid or GitHub, then run these commands:</div>
+        </div>
+        <div class="setup-card" style="background:var(--surface);border-radius:8px;padding:12px;border:1px solid var(--border);">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                <span style="width:20px;height:20px;border-radius:50%;background:#d29922;display:flex;align-items:center;justify-content:center;font-size:12px;">2</span>
+                <b>Install Python & Dependencies</b>
+            </div>
+            <pre style="font-size:0.75rem;background:#0d1117;padding:8px;border-radius:4px;margin-top:4px;">pkg update && pkg upgrade -y
+pkg install python git -y
+pip install aiohttp rich click pyyaml</pre>
+        </div>
+        <div class="setup-card" style="background:var(--surface);border-radius:8px;padding:12px;border:1px solid var(--border);">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                <span style="width:20px;height:20px;border-radius:50%;background:#58a6ff;display:flex;align-items:center;justify-content:center;font-size:12px;">3</span>
+                <b>Download Model (optional)</b>
+            </div>
+            <div style="font-size:0.85rem;opacity:0.7;margin-bottom:6px;">For local offline AI, download TinyLlama (~461MB):</div>
+            <pre style="font-size:0.75rem;background:#0d1117;padding:8px;border-radius:4px;margin-bottom:6px;">pip install ctransformers huggingface-hub
+python -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF', filename='tinyllama-1.1b-chat-v1.0.Q2_K.gguf')"</pre>
+            <button id="downloadModelBtn" onclick="downloadModel()" style="background:var(--accent);color:white;border:none;padding:8px 16px;border-radius:8px;font-size:0.85rem;width:100%;">
+                Download Model on Device
+            </button>
+        </div>
+        <div class="setup-card" style="background:var(--surface);border-radius:8px;padding:12px;border:1px solid var(--border);">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                <span style="width:20px;height:20px;border-radius:50%;background:#da3633;display:flex;align-items:center;justify-content:center;font-size:12px;">4</span>
+                <b>Start Backend Server</b>
+            </div>
+            <pre style="font-size:0.75rem;background:#0d1117;padding:8px;border-radius:4px;margin-top:4px;">git clone https://github.com/pop31-ai/ai-orchestrator.git
+cd ai-orchestrator
+python -m ai_orchestrator serve --host 0.0.0.0 --port 8080</pre>
+        </div>
     </div>
 </div>
 
 <!-- About -->
 <div class="tab-content" id="tab-about" style="text-align:center;padding-top:40px;">
-    <div style="font-size:2rem;margin-bottom:8px;">??</div>
+    <div style="font-size:2rem;margin-bottom:8px;">&#129302;</div>
     <h2 style="margin-bottom:4px;">AI Orchestrator</h2>
     <div style="opacity:0.6;margin-bottom:16px;">v1.0.0</div>
     <div style="opacity:0.5;font-size:0.85rem;">
-        Локальная оркестрация AI агентов<br>
-        с бесплатными моделями
+        Open source AI orchestrator<br>
+        with local model support
     </div>
     <div style="margin-top:24px;opacity:0.4;font-size:0.75rem;">
         Android <span id="aboutApiLevel">?</span> (API <span id="aboutApiNum">?</span>)
@@ -344,11 +392,11 @@ input:checked + .slider:before { transform: translateX(22px); }
 </div>
 
 <script>
-// ====== Состояние ======
+// ====== пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ ======
 let messages = [];
 let isStreaming = false;
 
-// ====== Определение API ======
+// ====== пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ API ======
 const apiInfo = window.AIOrchestrator || {
     version: '1.0.0',
     apiLevel: parseInt(/Android (\d+)/.exec(navigator.userAgent)?.[1] || '8'),
@@ -360,7 +408,7 @@ document.getElementById('apiLevelDisplay').textContent = 'Android ' + apiInfo.an
 document.getElementById('aboutApiLevel').textContent = apiInfo.androidVersion;
 document.getElementById('aboutApiNum').textContent = apiInfo.apiLevel;
 
-// ====== Вкладки ======
+// ====== пїЅпїЅпїЅпїЅпїЅпїЅпїЅ ======
 function switchTab(name) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
@@ -368,7 +416,7 @@ function switchTab(name) {
     document.getElementById('tab-' + name).classList.add('active');
 }
 
-// ====== Чат ======
+// ====== пїЅпїЅпїЅ ======
 function addMessage(text, role, append) {
     const container = document.getElementById('messages');
     if (append) {
@@ -438,11 +486,11 @@ async function sendMessage() {
         } else {
             const resp = await window.AIOrchestrator.send(text);
             hideTyping();
-            addMessage(resp.response || resp.error || 'Нет ответа', 'assistant');
+            addMessage(resp.response || resp.error || 'пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ', 'assistant');
         }
     } catch(e) {
         hideTyping();
-        addMessage('Ошибка: ' + e.message, 'assistant');
+        addMessage('пїЅпїЅпїЅпїЅпїЅпїЅ: ' + e.message, 'assistant');
     }
     isStreaming = false;
 }
@@ -452,17 +500,17 @@ function onInputKey(e) {
         e.preventDefault();
         sendMessage();
     }
-    // Авто-высота
+    // пїЅпїЅпїЅпїЅ-пїЅпїЅпїЅпїЅпїЅпїЅ
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
 }
 
-// ====== Настройки ======
+// ====== пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ ======
 async function setProvider(name) {
     if (window.AIOrchestrator?.setProvider) {
         await window.AIOrchestrator.setProvider(name);
     }
-    addMessage('Провайдер изменён: ' + name, 'assistant');
+    addMessage('пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ: ' + name, 'assistant');
 }
 
 function toggleTheme(dark) {
@@ -473,7 +521,7 @@ function toggleTheme(dark) {
 
 function toggleBgService(enabled) {
     if (enabled && apiInfo.apiLevel >= 30) {
-        // Запрос на фоновый сервис
+        // пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ
         if (window.AIOrchestrator?.startService) {
             window.AIOrchestrator.startService();
         }
@@ -481,14 +529,53 @@ function toggleBgService(enabled) {
 }
 
 function clearHistory() {
-    if (confirm('Очистить всю историю?')) {
+    if (confirm('Clear all messages?')) {
         document.getElementById('messages').innerHTML = '';
-        addMessage('История очищена', 'assistant');
+        addMessage('History cleared', 'assistant');
     }
 }
 
-// ====== Инициализация ======
+async function checkBackend() {
+    const el = document.getElementById('setupStep');
+    try {
+        const resp = await fetch('http://127.0.0.1:8080/health', { signal: AbortSignal.timeout(3000) });
+        if (resp.ok) {
+            el.innerHTML = '<span style="color:#3fb950;">&#9679;</span> Backend connected';
+        } else {
+            el.innerHTML = '<span style="color:#d29922;">&#9679;</span> Backend unreachable';
+        }
+    } catch {
+        el.innerHTML = '<span style="color:#da3633;">&#9679;</span> Backend not running. Start the Python server (step 4).';
+    }
+}
+
+async function downloadModel() {
+    const btn = document.getElementById('downloadModelBtn');
+    btn.disabled = true;
+    btn.textContent = 'Downloading... (requires Termux backend)';
+    btn.style.opacity = '0.6';
+
+    try {
+        const resp = await fetch('http://127.0.0.1:8080/model/download', { method: 'POST', signal: AbortSignal.timeout(30000) });
+        const data = await resp.json();
+        if (data.success) {
+            btn.textContent = 'Model downloaded!';
+            btn.style.background = '#3fb950';
+        } else {
+            btn.textContent = 'Error: ' + (data.error || 'unknown');
+            btn.style.background = '#da3633';
+        }
+    } catch (e) {
+        btn.textContent = 'Failed - start backend first';
+        btn.style.background = '#da3633';
+    }
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Download Model on Device'; btn.style.opacity = '1'; btn.style.background = ''; }, 3000);
+}
+
+// ====== Init ======
 document.getElementById('input').focus();
+checkBackend();
+setInterval(checkBackend, 15000);
 </script>
 </body>
 </html>

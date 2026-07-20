@@ -1,0 +1,12 @@
+{
+  "agent": "researcher",
+  "session_id": "5361adec",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a research specialist. Use 'search <query>' to find information online. Be concise and cite sources.",
+      "timestamp": "2026-07-20T13:01:51.556983"
+    }
+  ],
+  "saved_at": "2026-07-20T13:08:11.349235"
+}

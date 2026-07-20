@@ -1,0 +1,12 @@
+{
+  "agent": "devops",
+  "session_id": "b7e25aa0",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a DevOps engineer. Use git clone/push/pull/commit, run <cmd>, process list/output/kill to manage infrastructure.",
+      "timestamp": "2026-07-20T13:01:51.556983"
+    }
+  ],
+  "saved_at": "2026-07-20T13:08:11.349235"
+}

@@ -1,0 +1,12 @@
+{
+  "agent": "engineer",
+  "session_id": "39a6f3b9",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a systems engineer. Use 'run <command>' to execute shell commands. Use git clone/status/commit/push for git operations. Be precise and safe.",
+      "timestamp": "2026-07-20T13:01:51.556983"
+    }
+  ],
+  "saved_at": "2026-07-20T13:08:11.349235"
+}

@@ -794,53 +794,190 @@ class AgentChat:
         await self.executor.close()
 
 
+class Cache:
+    """Memoize task results to avoid repeated execution"""
+
+    def __init__(self, max_size: int = 100, ttl_sec: int = 300):
+        self._data: Dict[str, Dict] = {}
+        self._max_size = max_size
+        self._ttl_sec = ttl_sec
+
+    def _key(self, agent: str, message: str) -> str:
+        return f"{agent}:{message.strip().lower()[:100]}"
+
+    def get(self, agent: str, message: str) -> Optional[str]:
+        key = self._key(agent, message)
+        entry = self._data.get(key)
+        if not entry:
+            return None
+        if (datetime.now() - entry["ts"]).total_seconds() > self._ttl_sec:
+            del self._data[key]
+            return None
+        return entry["result"]
+
+    def set(self, agent: str, message: str, result: str):
+        key = self._key(agent, message)
+        if len(self._data) >= self._max_size:
+            oldest = min(self._data.keys(), key=lambda k: self._data[k]["ts"])
+            del self._data[oldest]
+        self._data[key] = {"result": result, "ts": datetime.now()}
+
+    @property
+    def size(self):
+        return len(self._data)
+
+
 class Orchestrator:
     def __init__(self):
         self.chats: Dict[str, AgentChat] = {}
-        self._semaphore = asyncio.Semaphore(4)  # Max 4 concurrent tasks
+        self._semaphore = asyncio.Semaphore(4)
         self._queue = asyncio.Queue()
         self._workers = 0
         self._worker_tasks = []
+        self._cache = Cache()
+        self._task_times: Dict[str, float] = {}
+        self._history_dir = Path(__file__).parent / "histories"
+        self._history_dir.mkdir(exist_ok=True)
 
+    # --- Chat management ---
     def create_chat(self, name: str, config: AgentConfig) -> AgentChat:
-        self.chats[name] = AgentChat(config)
-        return self.chats[name]
+        chat = AgentChat(config)
+        # Restore persistent memory
+        self._restore_history(name, chat)
+        self.chats[name] = chat
+        return chat
 
     def get_chat(self, name: str) -> Optional[AgentChat]:
-        return self.chats.get(name)
+        chat = self.chats.get(name)
+        if not chat and name in DEFAULT_AGENTS:
+            chat = self.create_chat(name, DEFAULT_AGENTS[name])
+        return chat
 
     def list_chats(self) -> List[str]:
         return list(self.chats.keys())
 
+    # --- Persistent memory (disk-backed) ---
+    def _history_path(self, name: str) -> Path:
+        return self._history_dir / f"{name}.json"
+
+    def _save_history(self, name: str, chat: AgentChat):
+        try:
+            path = self._history_path(name)
+            data = {
+                "agent": name,
+                "session_id": chat.session_id,
+                "messages": chat.messages,
+                "saved_at": datetime.now().isoformat(),
+            }
+            path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _restore_history(self, name: str, chat: AgentChat):
+        try:
+            path = self._history_path(name)
+            if path.exists():
+                data = json.loads(path.read_text(encoding="utf-8"))
+                chat.messages = data.get("messages", chat.messages)
+                chat.session_id = data.get("session_id", chat.session_id)
+        except Exception:
+            pass
+
+    def save_all_histories(self):
+        for name, chat in self.chats.items():
+            self._save_history(name, chat)
+
+    # --- Queue & workers ---
     async def enqueue(self, agent_name: str, message: str):
-        """Queue a task for async dispatch"""
         await self._queue.put((agent_name, message))
         if self._workers < 4:
             self._workers += 1
-            task = asyncio.create_task(self._worker_loop())
-            self._worker_tasks.append(task)
+            t = asyncio.create_task(self._worker_loop())
+            self._worker_tasks.append(t)
 
     async def _worker_loop(self):
-        """Worker: pulls tasks from queue, runs with semaphore"""
         while not self._queue.empty():
             agent_name, message = await self._queue.get()
             chat = self.get_chat(agent_name)
             if not chat:
+                self._queue.task_done()
                 continue
             async with self._semaphore:
+                start = datetime.now()
                 async for _ in chat.process(message):
                     pass
+                elapsed = (datetime.now() - start).total_seconds()
+                self._task_times[agent_name] = elapsed
+                self._save_history(agent_name, chat)
             self._queue.task_done()
         self._workers -= 1
 
+    # --- Pipeline: chain agents ---
+    async def pipeline(self, steps: List[Dict]) -> str:
+        """Run a chain of agents, passing results between them.
+        steps: [{"agent": "researcher", "prompt": "search X"}, {"agent": "analyst", "prompt": "analyze: {prev}"}]"""
+        result = ""
+        for i, step in enumerate(steps):
+            agent_name = step.get("agent", "researcher")
+            prompt = step.get("prompt", "").replace("{prev}", result)
+            chat = self.get_chat(agent_name)
+            if not chat:
+                return f"Agent '{agent_name}' not found"
+            full_output = ""
+            async with self._semaphore:
+                start = datetime.now()
+                async for chunk in chat.process(prompt):
+                    full_output += chunk
+                elapsed = (datetime.now() - start).total_seconds()
+                self._task_times[agent_name] = elapsed
+            result = full_output
+        return result
+
+    # --- Webhook handler ---
+    async def webhook(self, data: Dict) -> Dict:
+        """API gateway: accepts agent tasks, returns result"""
+        agent_name = data.get("agent", "researcher")
+        message = data.get("message", "")
+        if not message:
+            return {"error": "No message provided"}
+
+        # Check cache
+        cached = self._cache.get(agent_name, message)
+        if cached:
+            return {"agent": agent_name, "cached": True, "result": cached}
+
+        # Webhook can use pipeline
+        if "pipeline" in data:
+            result = await self.pipeline(data["pipeline"])
+        else:
+            chat = self.get_chat(agent_name)
+            if not chat:
+                return {"error": f"Unknown agent: {agent_name}"}
+            full_output = ""
+            async with self._semaphore:
+                async for chunk in chat.process(message):
+                    full_output += chunk
+            # Save to cache
+            self._cache.set(agent_name, message, full_output)
+
+        return {
+            "agent": agent_name,
+            "cached": False,
+            "result": full_output,
+            "status": "ok",
+        }
+
+    # --- Status ---
     async def get_status(self) -> Dict:
-        """Resource usage and queue status"""
         import psutil
         try:
             cpu = psutil.cpu_percent(interval=0.1)
             mem = psutil.virtual_memory().percent
         except Exception:
             cpu = mem = 0
+        avg_time = 0
+        if self._task_times:
+            avg_time = sum(self._task_times.values()) / len(self._task_times)
         return {
             "active_chats": len(self.chats),
             "queue_size": self._queue.qsize(),
@@ -848,10 +985,11 @@ class Orchestrator:
             "semaphore_available": self._semaphore._value,
             "cpu_percent": cpu,
             "memory_percent": mem,
+            "cache_size": self._cache.size,
+            "avg_task_time_sec": round(avg_time, 2),
         }
 
     async def cleanup_idle(self, max_idle_minutes: int = 5):
-        """Remove idle agent chats to free memory"""
         now = datetime.now()
         idle_names = []
         for name, chat in self.chats.items():
@@ -867,9 +1005,26 @@ class Orchestrator:
         for name in idle_names:
             chat = self.chats.pop(name, None)
             if chat:
+                self._save_history(name, chat)
                 await chat.close()
 
+    async def background_mode(self):
+        """Process queue continuously without UI"""
+        while True:
+            if not self._queue.empty():
+                agent_name, message = await self._queue.get()
+                chat = self.get_chat(agent_name)
+                if chat:
+                    async with self._semaphore:
+                        async for _ in chat.process(message):
+                            pass
+                        self._save_history(agent_name, chat)
+                self._queue.task_done()
+            else:
+                await asyncio.sleep(1)
+
     async def close_all(self):
+        self.save_all_histories()
         for chat in self.chats.values():
             await chat.close()
 
@@ -1763,6 +1918,41 @@ async def handle_ui(request):
     return web.FileResponse(Path(__file__).parent / "static" / "dashboard.html")
 
 
+async def handle_webhook(request):
+    data = await request.json()
+    orch = request.app["orchestrator"]
+    result = await orch.webhook(data)
+    return web.json_response(result)
+
+
+async def handle_pipeline(request):
+    data = await request.json()
+    steps = data.get("steps", [])
+    if not steps:
+        return web.json_response({"error": "No pipeline steps"}, status=400)
+    orch = request.app["orchestrator"]
+    result = await orch.pipeline(steps)
+    return web.json_response({"pipeline": steps, "result": result[:5000]})
+
+
+async def handle_cache(request):
+    orch = request.app["orchestrator"]
+    return web.json_response({"cache_size": orch._cache.size})
+
+
+async def handle_history_save(request):
+    orch = request.app["orchestrator"]
+    orch.save_all_histories()
+    return web.json_response({"saved": True})
+
+
+async def _bg_saver(app):
+    """Save histories every 30 seconds"""
+    while True:
+        await asyncio.sleep(30)
+        app["orchestrator"].save_all_histories()
+
+
 def create_app() -> web.Application:
     app = web.Application()
     app["orchestrator"] = Orchestrator()
@@ -1780,17 +1970,35 @@ def create_app() -> web.Application:
     app.router.add_post("/api/agent/new", handle_new_agent)
     app.router.add_get("/api/status", handle_status)
     app.router.add_get("/api/cleanup", handle_cleanup)
+    app.router.add_get("/api/cache", handle_cache)
+    app.router.add_get("/api/history/save", handle_history_save)
+    app.router.add_post("/api/webhook", handle_webhook)
+    app.router.add_post("/api/pipeline", handle_pipeline)
     app.router.add_get("/dashboard", handle_ui)
     app.router.add_static("/static/", static_dir)
 
+    async def startup(app):
+        asyncio.create_task(_bg_saver(app))
+
     async def cleanup(app):
         await app["orchestrator"].close_all()
+
+    app.on_startup.append(startup)
     app.on_cleanup.append(cleanup)
 
     return app
 
 
 if __name__ == "__main__":
+    import sys
     static = Path(__file__).parent / "static"
     static.mkdir(exist_ok=True)
-    web.run_app(create_app(), host="127.0.0.1", port=8080)
+
+    if "--background" in sys.argv:
+        app = create_app()
+        app["orchestrator"]._background_task = asyncio.create_task(
+            app["orchestrator"].background_mode()
+        )
+        web.run_app(app, host="127.0.0.1", port=8080)
+    else:
+        web.run_app(create_app(), host="127.0.0.1", port=8080)

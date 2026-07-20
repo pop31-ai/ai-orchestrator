@@ -1,6 +1,6 @@
 plugins {
     id("com.android.application")
-    id("com.chaquo.python")
+    id("org.jetbrains.kotlin.android") version "1.9.22"
 }
 
 android {
@@ -11,20 +11,8 @@ android {
         applicationId = "com.aiorchestrator.app"
         versionCode = 1
         versionName = "1.0.0"
-
-        python {
-            buildPython("/usr/bin/python3")
-            pip {
-                install("aiohttp")
-                install("rich")
-                install("click")
-                install("pyyaml")
-            }
-        }
-
-        ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
-        }
+        minSdk = 26
+        targetSdk = 34
     }
 
     flavorDimensions += "api"
@@ -33,7 +21,7 @@ android {
             dimension = "api"
             versionNameSuffix = "-api26"
             minSdk = 26
-            targetSdk = 28
+            targetSdk = 30
         }
         create("android11") {
             dimension = "api"
@@ -65,12 +53,6 @@ android {
     buildFeatures {
         viewBinding = true
     }
-
-    sourceSets {
-        getByName("main") {
-            python.srcDirs("src/main/python")
-        }
-    }
 }
 
 dependencies {
@@ -82,6 +64,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-ktx:1.8.2")
 
-    // Chaquopy Python
-    runtimeOnly("com.chaquo.python:gradle:15.0.1")
+    // Networking for Termux backend
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("com.google.code.gson:gson:2.10.1")
 }

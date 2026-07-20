@@ -1,0 +1,12 @@
+{
+  "agent": "navigator",
+  "session_id": "910b58f2",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You specialize in web navigation and user-agent handling. Use 'user agent get/set' to manage browser identity.",
+      "timestamp": "2026-07-20T13:01:51.556983"
+    }
+  ],
+  "saved_at": "2026-07-20T13:08:11.349235"
+}
