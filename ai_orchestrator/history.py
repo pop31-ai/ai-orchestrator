@@ -1,16 +1,14 @@
-"""History management with efficient storage and retrieval"""
+"""History management with JSON file-based storage and retrieval"""
 
 import asyncio
 import json
 import logging
-import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from contextlib import contextmanager
 
 from .agent import AgentMessage, MessageRole
 from .config import HistoryConfig
@@ -52,113 +50,102 @@ class SessionSummary:
 
 
 class HistoryManager:
-    """Manages conversation history with efficient storage and retrieval"""
+    """Manages conversation history using JSON files"""
 
     def __init__(self, config: HistoryConfig, data_dir: Path):
         self.config = config
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.db_path = self.data_dir / "history.db"
-        self._init_db()
+        self._sessions_index_path = self.data_dir / "sessions_index.json"
+        self._lock = asyncio.Lock()
+        self._init_index()
 
-    def _init_db(self):
-        """Initialize SQLite database"""
-        with self._get_connection() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
-                    id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    agent_id TEXT,
-                    timestamp REAL NOT NULL,
-                    tokens INTEGER DEFAULT 0,
-                    metadata TEXT,
-                    tool_calls TEXT,
-                    tool_call_id TEXT
-                )
-            """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_session_timestamp
-                ON messages(session_id, timestamp)
-            """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_session_id
-                ON messages(session_id)
-            """)
+    def _init_index(self):
+        if not self._sessions_index_path.exists():
+            self._write_index({})
+        else:
+            try:
+                data = json.loads(self._sessions_index_path.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    self._write_index({})
+            except (json.JSONDecodeError, ValueError):
+                self._write_index({})
 
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS sessions (
-                    session_id TEXT PRIMARY KEY,
-                    message_count INTEGER DEFAULT 0,
-                    total_tokens INTEGER DEFAULT 0,
-                    started_at REAL NOT NULL,
-                    last_activity REAL NOT NULL,
-                    summary TEXT,
-                    tags TEXT
-                )
-            """)
-
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS embeddings (
-                    message_id TEXT PRIMARY KEY,
-                    embedding BLOB NOT NULL,
-                    model TEXT NOT NULL,
-                    FOREIGN KEY(message_id) REFERENCES messages(id)
-                )
-            """)
-
-    @contextmanager
-    def _get_connection(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+    def _read_index(self) -> dict:
         try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+            return json.loads(self._sessions_index_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
+    def _write_index(self, data: dict):
+        tmp = self._sessions_index_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(self._sessions_index_path)
+
+    def _session_path(self, session_id: str) -> Path:
+        return self.data_dir / f"session_{session_id}.json"
+
+    def _read_session_file(self, session_id: str) -> Optional[dict]:
+        path = self._session_path(session_id)
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, ValueError):
+            logger.warning(f"Corrupted session file: {path}")
+            return None
+
+    def _write_session_file(self, session_id: str, data: dict):
+        path = self._session_path(session_id)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
 
     def _estimate_tokens(self, text: str) -> int:
         return len(text) // 4
 
     async def add_message(self, session_id: str, message: AgentMessage):
-        """Add message to history"""
-        entry = HistoryEntry(
-            id=message.id,
-            session_id=session_id,
-            role=message.role.value,
-            content=message.content,
-            agent_id=message.agent_id,
-            timestamp=message.timestamp,
-            tokens=self._estimate_tokens(message.content),
-            metadata=message.metadata,
-            tool_calls=[tc.__dict__ for tc in message.tool_calls] if message.tool_calls else [],
-            tool_call_id=message.tool_call_id
-        )
+        async with self._lock:
+            entry = HistoryEntry(
+                id=message.id,
+                session_id=session_id,
+                role=message.role.value,
+                content=message.content,
+                agent_id=message.agent_id,
+                timestamp=message.timestamp,
+                tokens=self._estimate_tokens(message.content),
+                metadata=message.metadata,
+                tool_calls=[tc.__dict__ for tc in message.tool_calls] if message.tool_calls else [],
+                tool_call_id=message.tool_call_id
+            )
 
-        with self._get_connection() as conn:
-            conn.execute("""
-                INSERT INTO messages (id, session_id, role, content, agent_id, timestamp, tokens, metadata, tool_calls, tool_call_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                entry.id, entry.session_id, entry.role, entry.content,
-                entry.agent_id, entry.timestamp, entry.tokens,
-                json.dumps(entry.metadata), json.dumps(entry.tool_calls),
-                entry.tool_call_id
-            ))
+            session_data = self._read_session_file(session_id)
+            if session_data is None:
+                session_data = {
+                    "session_id": session_id,
+                    "messages": [],
+                    "started_at": message.timestamp,
+                    "message_count": 0,
+                    "total_tokens": 0
+                }
 
-            # Update session
-            conn.execute("""
-                INSERT INTO sessions (session_id, message_count, total_tokens, started_at, last_activity)
-                VALUES (?, 1, ?, ?, ?)
-                ON CONFLICT(session_id) DO UPDATE SET
-                    message_count = message_count + 1,
-                    total_tokens = total_tokens + ?,
-                    last_activity = ?
-            """, (session_id, entry.tokens, entry.timestamp, entry.timestamp, entry.tokens, entry.timestamp))
+            session_data["messages"].append(asdict(entry))
+            session_data["message_count"] += 1
+            session_data["total_tokens"] += entry.tokens
+            self._write_session_file(session_id, session_data)
+
+            index = self._read_index()
+            now = message.timestamp
+            index[session_id] = {
+                "session_id": session_id,
+                "message_count": session_data["message_count"],
+                "total_tokens": session_data["total_tokens"],
+                "started_at": session_data.get("started_at", now),
+                "last_activity": now,
+                "summary": index.get(session_id, {}).get("summary", ""),
+                "tags": index.get(session_id, {}).get("tags", [])
+            }
+            self._write_index(index)
 
     async def get_messages(
         self,
@@ -169,44 +156,29 @@ class HistoryManager:
         after_timestamp: float = None,
         roles: List[str] = None
     ) -> List[HistoryEntry]:
-        """Get messages with pagination"""
         limit = limit or self.config.page_size
+        session_data = self._read_session_file(session_id)
+        if session_data is None:
+            return []
 
-        query = "SELECT * FROM messages WHERE session_id = ?"
-        params = [session_id]
+        msgs = session_data.get("messages", [])
+        filtered = []
+        for m in msgs:
+            if before_timestamp and m["timestamp"] >= before_timestamp:
+                continue
+            if after_timestamp and m["timestamp"] <= after_timestamp:
+                continue
+            if roles and m["role"] not in roles:
+                continue
+            filtered.append(m)
 
-        if before_timestamp:
-            query += " AND timestamp < ?"
-            params.append(before_timestamp)
-        if after_timestamp:
-            query += " AND timestamp > ?"
-            params.append(after_timestamp)
-        if roles:
-            placeholders = ",".join(["?"] * len(roles))
-            query += f" AND role IN ({placeholders})"
-            params.extend(roles)
-
-        query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
-
-        with self._get_connection() as conn:
-            rows = conn.execute(query, params).fetchall()
+        filtered.sort(key=lambda x: x["timestamp"], reverse=True)
+        page = filtered[offset:offset + limit]
+        page.reverse()
 
         entries = []
-        for row in reversed(rows):  # Reverse to get chronological order
-            entries.append(HistoryEntry(
-                id=row['id'],
-                session_id=row['session_id'],
-                role=row['role'],
-                content=row['content'],
-                agent_id=row['agent_id'],
-                timestamp=row['timestamp'],
-                tokens=row['tokens'],
-                metadata=json.loads(row['metadata']) if row['metadata'] else {},
-                tool_calls=json.loads(row['tool_calls']) if row['tool_calls'] else [],
-                tool_call_id=row['tool_call_id']
-            ))
-
+        for m in page:
+            entries.append(HistoryEntry(**m))
         return entries
 
     async def get_messages_for_context(
@@ -214,40 +186,21 @@ class HistoryManager:
         session_id: str,
         max_tokens: int = None
     ) -> List[HistoryEntry]:
-        """Get messages optimized for context window"""
         max_tokens = max_tokens or self.config.max_total_tokens
+        session_data = self._read_session_file(session_id)
+        if session_data is None:
+            return []
 
-        with self._get_connection() as conn:
-            rows = conn.execute("""
-                SELECT * FROM messages
-                WHERE session_id = ?
-                ORDER BY timestamp DESC
-            """, (session_id,)).fetchall()
+        msgs = session_data.get("messages", [])
+        msgs.sort(key=lambda x: x["timestamp"])
 
         entries = []
         total_tokens = 0
-        max_t = max_tokens
-
-        for row in reversed(rows):
-            entry = HistoryEntry(
-                id=row['id'],
-                session_id=row['session_id'],
-                role=row['role'],
-                content=row['content'],
-                agent_id=row['agent_id'],
-                timestamp=row['timestamp'],
-                tokens=row['tokens'],
-                metadata=json.loads(row['metadata']) if row['metadata'] else {},
-                tool_calls=json.loads(row['tool_calls']) if row['tool_calls'] else [],
-                tool_call_id=row['tool_call_id']
-            )
-
-            if total_tokens + entry.tokens > max_t and len(entries) > 0:
+        for m in msgs:
+            if total_tokens + m["tokens"] > max_tokens and len(entries) > 0:
                 break
-
-            entries.append(entry)
-            total_tokens += entry.tokens
-
+            entries.append(HistoryEntry(**m))
+            total_tokens += m["tokens"]
         return entries
 
     async def search_messages(
@@ -256,80 +209,70 @@ class HistoryManager:
         query: str,
         limit: int = 20
     ) -> List[HistoryEntry]:
-        """Search messages by content"""
-        with self._get_connection() as conn:
-            rows = conn.execute("""
-                SELECT * FROM messages
-                WHERE session_id = ? AND content LIKE ?
-                ORDER BY timestamp DESC
-                LIMIT ?
-            """, (session_id, f"%{query}%", limit)).fetchall()
+        session_data = self._read_session_file(session_id)
+        if session_data is None:
+            return []
 
-        entries = []
-        for row in reversed(rows):
-            entries.append(HistoryEntry(
-                id=row['id'],
-                session_id=row['session_id'],
-                role=row['role'],
-                content=row['content'],
-                agent_id=row['agent_id'],
-                timestamp=row['timestamp'],
-                tokens=row['tokens'],
-                metadata=json.loads(row['metadata']) if row['metadata'] else {},
-                tool_calls=json.loads(row['tool_calls']) if row['tool_calls'] else [],
-                tool_call_id=row['tool_call_id']
-            ))
+        msgs = session_data.get("messages", [])
+        results = [m for m in msgs if query.lower() in m["content"].lower()]
+        results.sort(key=lambda x: x["timestamp"], reverse=True)
+        results = results[:limit]
+        results.reverse()
 
-        return entries
+        return [HistoryEntry(**m) for m in results]
 
     async def list_sessions(self, limit: int = 50) -> List[SessionSummary]:
-        """List all sessions"""
-        with self._get_connection() as conn:
-            rows = conn.execute("""
-                SELECT * FROM sessions
-                ORDER BY last_activity DESC
-                LIMIT ?
-            """, (limit,)).fetchall()
+        index = self._read_index()
+        sessions = sorted(index.values(), key=lambda x: x.get("last_activity", 0), reverse=True)
+        sessions = sessions[:limit]
 
-        summaries = []
-        for row in rows:
-            summaries.append(SessionSummary(
-                session_id=row['session_id'],
-                message_count=row['message_count'],
-                total_tokens=row['total_tokens'],
-                started_at=row['started_at'],
-                last_activity=row['last_activity'],
-                summary=row['summary'] or "",
-                tags=json.loads(row['tags']) if row['tags'] else []
+        result = []
+        for s in sessions:
+            result.append(SessionSummary(
+                session_id=s["session_id"],
+                message_count=s["message_count"],
+                total_tokens=s["total_tokens"],
+                started_at=s.get("started_at", s.get("last_activity", 0)),
+                last_activity=s.get("last_activity", 0),
+                summary=s.get("summary", ""),
+                tags=s.get("tags", [])
             ))
-
-        return summaries
+        return result
 
     async def get_session(self, session_id: str) -> Optional[SessionSummary]:
-        """Get session summary"""
-        with self._get_connection() as conn:
-            row = conn.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
-            if not row:
+        index = self._read_index()
+        s = index.get(session_id)
+        if s is None:
+            session_data = self._read_session_file(session_id)
+            if session_data is None:
                 return None
-
             return SessionSummary(
-                session_id=row['session_id'],
-                message_count=row['message_count'],
-                total_tokens=row['total_tokens'],
-                started_at=row['started_at'],
-                last_activity=row['last_activity'],
-                summary=row['summary'] or "",
-                tags=json.loads(row['tags']) if row['tags'] else []
+                session_id=session_id,
+                message_count=session_data.get("message_count", 0),
+                total_tokens=session_data.get("total_tokens", 0),
+                started_at=session_data.get("started_at", 0),
+                last_activity=session_data.get("last_activity", 0)
             )
+        return SessionSummary(
+            session_id=s["session_id"],
+            message_count=s["message_count"],
+            total_tokens=s["total_tokens"],
+            started_at=s.get("started_at", s.get("last_activity", 0)),
+            last_activity=s.get("last_activity", 0),
+            summary=s.get("summary", ""),
+            tags=s.get("tags", [])
+        )
 
     async def delete_session(self, session_id: str):
-        """Delete a session and all its messages"""
-        with self._get_connection() as conn:
-            conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        async with self._lock:
+            path = self._session_path(session_id)
+            if path.exists():
+                path.unlink()
+            index = self._read_index()
+            index.pop(session_id, None)
+            self._write_index(index)
 
     async def export_session(self, session_id: str, format: str = "json") -> str:
-        """Export session to string"""
         messages = await self.get_messages(session_id, limit=10000)
         session = await self.get_session(session_id)
 
@@ -350,8 +293,8 @@ class HistoryManager:
 
             for msg in messages:
                 role = msg.role.upper()
-                time = datetime.fromtimestamp(msg.timestamp).strftime("%H:%M:%S")
-                lines.append(f"## {role} ({time})")
+                time_str = datetime.fromtimestamp(msg.timestamp).strftime("%H:%M:%S")
+                lines.append(f"## {role} ({time_str})")
                 lines.append(msg.content)
                 lines.append("")
             return "\n".join(lines)
@@ -359,12 +302,9 @@ class HistoryManager:
             return json.dumps(data, ensure_ascii=False)
 
     async def import_session(self, data: str, format: str = "json") -> str:
-        """Import session from string"""
         if format == "json":
             obj = json.loads(data)
-            session_data = obj.get("session")
             messages_data = obj.get("messages", [])
-
             session_id = str(uuid.uuid4())[:8]
 
             for msg_data in messages_data:
@@ -399,7 +339,6 @@ class VirtualScrollManager:
         self._cache_end = 0
 
     async def set_session(self, session_id: str):
-        """Set current session for scrolling"""
         self.current_session_id = session_id
         self._message_heights.clear()
         self._cached_messages.clear()
@@ -408,9 +347,10 @@ class VirtualScrollManager:
         self._total_count = await self._get_total_count(session_id)
 
     async def _get_total_count(self, session_id: str) -> int:
-        with self.history_manager._get_connection() as conn:
-            row = conn.execute("SELECT COUNT(*) as cnt FROM messages WHERE session_id = ?", (session_id,)).fetchone()
-            return row['cnt'] if row else 0
+        session = await self.history_manager.get_session(session_id)
+        if session:
+            return session.message_count
+        return 0
 
     @property
     def total_count(self) -> int:
@@ -432,7 +372,6 @@ class VirtualScrollManager:
         scroll_top: int,
         viewport_height: int
     ) -> List[Tuple[int, HistoryEntry]]:
-        """Get messages visible in viewport with their indices"""
         if not self.current_session_id:
             return []
 
@@ -440,12 +379,10 @@ class VirtualScrollManager:
         start_idx = max(0, scroll_top // item_height)
         end_idx = min(self._total_count, (scroll_top + viewport_height) // item_height + 1)
 
-        # Add buffer
         buffer = self.config.render_buffer
         start_idx = max(0, start_idx - buffer)
         end_idx = min(self._total_count, end_idx + buffer)
 
-        # Check if we need to fetch new data
         if start_idx < self._cache_start or end_idx > self._cache_end or not self._cached_messages:
             limit = end_idx - start_idx
             offset = start_idx
@@ -458,7 +395,6 @@ class VirtualScrollManager:
             self._cache_start = start_idx
             self._cache_end = end_idx
 
-        # Return visible subset with indices
         result = []
         for i, msg in enumerate(self._cached_messages):
             idx = start_idx + i
@@ -481,11 +417,9 @@ class HistoryCompressor:
         target_tokens: int,
         preserve_recent: int = 10
     ) -> List[HistoryEntry]:
-        """Compress messages to fit token budget"""
         if not messages:
             return []
 
-        # Always preserve recent messages
         recent = messages[-preserve_recent:] if len(messages) > preserve_recent else messages
         older = messages[:-preserve_recent] if len(messages) > preserve_recent else []
 
@@ -493,7 +427,6 @@ class HistoryCompressor:
         if current_tokens <= target_tokens:
             return messages
 
-        # If we have a provider, use it to summarize
         if self.provider and older:
             summary = await self._summarize_with_llm(older)
             summary_entry = HistoryEntry(
@@ -508,8 +441,7 @@ class HistoryCompressor:
             )
             return [summary_entry] + recent
 
-        # Fallback: simple truncation with indicator
-        truncated = older[-(target_tokens // 100):]  # Rough estimate
+        truncated = older[-(target_tokens // 100):]
         indicator = HistoryEntry(
             id=str(uuid.uuid4())[:8],
             session_id=older[0].session_id if older else "",
@@ -526,11 +458,9 @@ class HistoryCompressor:
         return len(text) // 4
 
     async def _summarize_with_llm(self, messages: List[HistoryEntry]) -> str:
-        """Use LLM to summarize messages"""
         if not self.provider:
             return self._simple_summarize(messages)
 
-        # Build conversation for summarization
         conv = []
         for m in messages:
             conv.append({"role": m.role, "content": m.content})
@@ -553,7 +483,6 @@ class HistoryCompressor:
             return self._simple_summarize(messages)
 
     def _simple_summarize(self, messages: List[HistoryEntry]) -> str:
-        """Simple extractive summarization"""
         user_msgs = [m for m in messages if m.role == "user"]
         assistant_msgs = [m for m in messages if m.role == "assistant"]
 

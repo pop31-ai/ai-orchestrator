@@ -154,9 +154,11 @@ class AIOrchestrator:
         ]
 
     async def switch_provider(self, provider_name: str) -> bool:
-        """Switch active provider"""
+        """Switch active provider with lazy loading"""
         if provider_name not in self.orchestrator.providers:
-            return False
+            ok = await self.orchestrator._lazy_load_provider(provider_name)
+            if not ok:
+                return False
 
         self.orchestrator.active_provider_name = provider_name
         self.orchestrator.active_provider = self.orchestrator.providers[provider_name]
@@ -195,7 +197,7 @@ class AIOrchestrator:
         agent_type: str = "chat",
         system_prompt: str = "",
         agent_config: Dict = None
-    ) -> str:
+    ) -> ChatAgent:
         """Create a new agent"""
         agent_id = str(uuid.uuid4())[:8]
 
@@ -224,7 +226,7 @@ class AIOrchestrator:
         agent.on("message", lambda msg: asyncio.create_task(self._on_agent_message(agent_id, msg)))
 
         await self._emit("agent_created", {"agent_id": agent_id, "type": agent_type})
-        return agent_id
+        return agent
 
     async def _on_agent_message(self, agent_id: str, message: AgentMessage):
         """Handle agent message for history"""

@@ -306,9 +306,11 @@ class ChatAgent(BaseAgent):
         self.state = AgentState.THINKING
 
         tool_iterations = 0
-        messages_buffer = []
 
         while tool_iterations < self._tool_loop_limit:
+            messages_buffer = []
+            collected_tool_calls = []
+
             # Get completion
             async for chunk in self.stream_complete():
                 if chunk.content:
@@ -319,6 +321,18 @@ class ChatAgent(BaseAgent):
                         agent_id=self.agent_id,
                         metadata={"streaming": True, "chunk_id": chunk.chunk_id}
                     )
+                if chunk.tool_calls:
+                    collected_tool_calls.extend(chunk.tool_calls)
+
+            # Save assistant message to context
+            full_content = "".join(messages_buffer)
+            assistant_msg = AgentMessage(
+                role=MessageRole.ASSISTANT,
+                content=full_content,
+                agent_id=self.agent_id,
+                tool_calls=collected_tool_calls or None
+            )
+            await self.add_message(assistant_msg)
 
             # Check for tool calls
             tool_calls = []
@@ -336,9 +350,10 @@ class ChatAgent(BaseAgent):
             tool_results = await self.execute_tools(tool_calls)
 
             for result in tool_results:
+                content = json.dumps(result.result, ensure_ascii=False) if result.result else ""
                 tool_msg = AgentMessage(
                     role=MessageRole.TOOL,
-                    content=json.dumps(result.result) if result.result else "",
+                    content=content,
                     tool_call_id=result.tool_call_id,
                     agent_id=self.agent_id,
                     metadata={"tool_name": result.name, "error": result.error}
@@ -348,15 +363,6 @@ class ChatAgent(BaseAgent):
 
         self.state = AgentState.COMPLETED
 
-        # Final message with full content
-        full_content = "".join(messages_buffer)
-        yield AgentMessage(
-            role=MessageRole.ASSISTANT,
-            content=full_content,
-            agent_id=self.agent_id,
-            metadata={"complete": True, "tool_iterations": tool_iterations}
-        )
-
 
 class AgentOrchestrator:
     """Orchestrates multiple agents and manages sessions"""
@@ -364,6 +370,7 @@ class AgentOrchestrator:
     def __init__(self, config: Config):
         self.config = config
         self.providers: Dict[str, AIProvider] = {}
+        self._pending_providers: Dict[str, Any] = {}
         self.agents: Dict[str, BaseAgent] = {}
         self.tool_executor = ToolExecutor()
         self.sessions: Dict[str, AgentContext] = {}
@@ -372,9 +379,15 @@ class AgentOrchestrator:
         self._callbacks: Dict[str, List[Callable]] = {}
 
     async def initialize(self):
-        """Initialize all providers"""
+        """Initialize only the active provider (lazy load others on demand)"""
+        active_name = self.config.active_provider or ""
+
         for name, provider_config in self.config.providers.items():
             if not provider_config.enabled:
+                continue
+            if name != active_name:
+                # Store config for lazy loading, skip init
+                self._pending_providers[name] = provider_config
                 continue
             try:
                 provider = ProviderFactory.create(provider_config)
@@ -392,7 +405,6 @@ class AgentOrchestrator:
         if self.config.active_provider and self.config.active_provider in self.providers:
             self.active_provider_name = self.config.active_provider
         elif self.providers:
-            # Sort by priority and pick highest
             sorted_providers = sorted(
                 self.providers.items(),
                 key=lambda x: x[1].config.priority,
@@ -406,6 +418,28 @@ class AgentOrchestrator:
 
         if self.active_provider_name:
             self.active_provider = self.providers[self.active_provider_name]
+
+    async def _lazy_load_provider(self, name: str) -> bool:
+        """Initialize a provider on demand"""
+        if name in self.providers:
+            return True
+        provider_config = self._pending_providers.pop(name, None)
+        if not provider_config:
+            # Check config for disabled providers too
+            provider_config = self.config.providers.get(name)
+            if not provider_config or not provider_config.enabled:
+                return False
+        try:
+            provider = ProviderFactory.create(provider_config)
+            success = await provider.initialize()
+            if success:
+                self.providers[name] = provider
+                logger.info(f"Lazy-loaded provider: {name}")
+                return True
+            await provider.close()
+        except Exception as e:
+            logger.error(f"Failed to lazy-load provider {name}: {e}")
+        return False
         self._register_builtin_tools()
 
     def _register_builtin_tools(self):
@@ -462,9 +496,11 @@ class AgentOrchestrator:
             yield response
 
     async def switch_provider(self, provider_name: str):
-        """Switch active provider"""
+        """Switch active provider, lazy-load if needed"""
         if provider_name not in self.providers:
-            raise ValueError(f"Provider not found: {provider_name}")
+            ok = await self._lazy_load_provider(provider_name)
+            if not ok:
+                raise ValueError(f"Provider not found or failed to load: {provider_name}")
 
         old_provider = self.active_provider
         self.active_provider = self.providers[provider_name]
@@ -475,7 +511,7 @@ class AgentOrchestrator:
         for agent in self.agents.values():
             agent.provider = self.active_provider
 
-        logger.info(f"Switched provider: {old_provider.name} -> {self.active_provider.name}")
+        logger.info(f"Switched provider: {old_provider.name if old_provider else 'none'} -> {self.active_provider.name}")
 
     async def list_models(self, provider_name: str = None) -> List[str]:
         provider = self.get_provider(provider_name)

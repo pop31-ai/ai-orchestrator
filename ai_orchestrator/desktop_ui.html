@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Orchestrator Desktop</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #0d1117; --surface: #161b22; --border: #30363d;
+  --text: #c9d1d9; --text-dim: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --yellow: #d29922; --red: #da3633;
+  --purple: #bc8cff; --pink: #ff7b9c;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg); color: var(--text);
+  height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+}
+/* Header */
+.header {
+  padding: 12px 20px; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 16px; flex-shrink: 0;
+}
+.header h1 { font-size: 1.1rem; font-weight: 600; }
+.header .status { font-size: 0.8rem; display: flex; align-items: center; gap: 6px; }
+.header .status .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.header .dot.online { background: var(--green); }
+.header .dot.loading { background: var(--yellow); animation: pulse 1s infinite; }
+.controls { margin-left: auto; display: flex; gap: 8px; }
+.controls button {
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); padding: 6px 14px; border-radius: 6px;
+  cursor: pointer; font-size: 0.8rem;
+}
+.controls button:hover { border-color: var(--accent); }
+.cancel-btn {
+  background: var(--red); color: #fff; border: none;
+  padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;
+  white-space: nowrap;
+}
+.cancel-btn:hover { opacity: 0.8; }
+
+/* Main layout */
+.main { display: flex; flex: 1; overflow: hidden; }
+
+/* Characters sidebar */
+.sidebar {
+  width: 260px; background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0;
+  overflow-y: auto;
+}
+.sidebar-title {
+  padding: 12px 16px; font-size: 0.75rem; text-transform: uppercase;
+  color: var(--text-dim); letter-spacing: 0.5px; border-bottom: 1px solid var(--border);
+}
+.char-card {
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background 0.15s;
+  display: flex; align-items: center; gap: 12px;
+}
+.char-card:hover { background: rgba(88,166,255,0.08); }
+.char-card.active { background: rgba(88,166,255,0.12); border-left: 3px solid var(--accent); }
+.char-card .avatar {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.3rem; flex-shrink: 0;
+}
+.char-card .info { flex: 1; min-width: 0; }
+.char-card .name { font-size: 0.9rem; font-weight: 500; }
+.char-card .desc { font-size: 0.75rem; color: var(--text-dim); }
+.char-card .model-badge {
+  font-size: 0.65rem; padding: 2px 8px; border-radius: 10px;
+  background: rgba(88,166,255,0.15); color: var(--accent);
+}
+.char-card .dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.char-card .dot.online { background: var(--green); }
+.char-card .dot.offline { background: var(--red); }
+.char-card .dot.loading { background: var(--yellow); animation: pulse 1s infinite; }
+.char-card .download-btn {
+  background: var(--accent); border: none; color: white;
+  padding: 4px 12px; border-radius: 6px; cursor: pointer;
+  font-size: 0.7rem; flex-shrink: 0;
+}
+.char-card .download-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Workspace */
+.workspace { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.workspace-header {
+  padding: 10px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+}
+.workspace-header .mode {
+  display: flex; gap: 4px; background: var(--surface);
+  border-radius: 8px; padding: 2px;
+}
+.workspace-header .mode button {
+  background: none; border: none; color: var(--text-dim);
+  padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.8rem;
+}
+.workspace-header .mode button.active {
+  background: var(--accent); color: white;
+}
+.workspace-header .target-select {
+  margin-left: auto;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); padding: 6px 10px; border-radius: 6px; font-size: 0.8rem;
+}
+
+/* Messages area */
+.messages {
+  flex: 1; overflow-y: auto; padding: 16px 20px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.msg-group { display: flex; flex-direction: column; gap: 4px; }
+.msg-group .msg-author {
+  font-size: 0.75rem; color: var(--text-dim);
+  display: flex; align-items: center; gap: 6px;
+}
+.msg-group .msg-author .author-avatar { font-size: 0.9rem; }
+.msg-bubble {
+  max-width: 80%; padding: 10px 14px; border-radius: 12px;
+  line-height: 1.5; word-break: break-word; font-size: 0.9rem;
+}
+.msg-bubble.user {
+  align-self: flex-end; background: var(--accent); color: white;
+  border-bottom-right-radius: 4px;
+}
+.msg-bubble.assistant {
+  background: var(--surface); border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+.msg-bubble pre {
+  background: #0d1117; padding: 8px 12px; border-radius: 8px;
+  overflow-x: auto; margin: 6px 0; font-size: 0.8rem;
+}
+.msg-bubble code { font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 0.8rem; }
+.msg-bubble .time { font-size: 0.65rem; opacity: 0.5; margin-top: 4px; }
+.typing::after {
+  content: ''; display: inline-block; width: 8px; height: 14px;
+  background: var(--accent); animation: blink 0.8s infinite;
+}
+
+/* Multi-response (group mode) */
+.multi-response {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px; margin: 8px 0;
+}
+.multi-response .resp-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px; border-top: 3px solid var(--accent);
+}
+.multi-response .resp-card .resp-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.multi-response .resp-card .resp-header .avatar { font-size: 1.2rem; }
+.multi-response .resp-card .resp-header .name { font-weight: 500; font-size: 0.85rem; }
+.multi-response .resp-card .resp-content { font-size: 0.85rem; line-height: 1.5; }
+
+/* Input area */
+.input-area {
+  padding: 12px 20px; background: var(--surface);
+  border-top: 1px solid var(--border); display: flex; gap: 8px;
+  align-items: flex-end; flex-shrink: 0;
+}
+.input-area textarea {
+  flex: 1; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 14px; color: var(--text);
+  font-size: 0.9rem; resize: none; max-height: 120px; outline: none;
+  font-family: inherit;
+}
+.input-area textarea:focus { border-color: var(--accent); }
+.input-area .send-btn {
+  background: var(--accent); border: none; border-radius: 50%;
+  width: 42px; height: 42px; display: flex; align-items: center;
+  justify-content: center; cursor: pointer; flex-shrink: 0;
+}
+.input-area .send-btn:active { transform: scale(0.95); }
+.input-area .send-btn svg { fill: white; width: 18px; height: 18px; }
+.input-area .tool-btn {
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); padding: 8px 12px; border-radius: 8px;
+  cursor: pointer; font-size: 0.8rem; flex-shrink: 0;
+}
+.input-area .tool-btn:hover { border-color: var(--accent); }
+
+/* Tools panel (modal) */
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6); z-index: 100;
+  align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; width: 90%; max-width: 600px;
+  max-height: 80vh; overflow-y: auto; padding: 24px;
+}
+.modal h2 { margin-bottom: 16px; font-size: 1.1rem; }
+.modal .field { margin-bottom: 12px; }
+.modal .field label { display: block; font-size: 0.8rem; color: var(--text-dim); margin-bottom: 4px; }
+.modal .field input, .modal .field textarea, .modal .field select {
+  width: 100%; background: var(--bg); border: 1px solid var(--border);
+  color: var(--text); padding: 8px 12px; border-radius: 8px; font-size: 0.9rem;
+  font-family: inherit;
+}
+.modal .field textarea { min-height: 100px; resize: vertical; }
+.modal .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.modal .modal-actions button {
+  padding: 8px 20px; border-radius: 8px; border: none;
+  cursor: pointer; font-size: 0.85rem;
+}
+.modal .modal-actions .primary { background: var(--accent); color: white; }
+.modal .modal-actions .secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+
+/* Animations */
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sidebar { width: 200px; }
+  .multi-response { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>&#9889; AI Orchestrator Desktop</h1>
+  <div class="status"><span class="dot" id="statusDot"></span> <span id="statusText">Loading...</span></div>
+  <div class="controls">
+    <button onclick="openToolModal('document')">&#128196; Document</button>
+    <button onclick="openToolModal('email')">&#9993; Email</button>
+    <button onclick="openToolModal('shell')">&#9881; Command</button>
+    <button onclick="openToolModal('documents')">&#128193; Documents</button>
+    <button onclick="openToolModal('analyze')">&#128200; Analyze All</button>
+  </div>
+</div>
+
+<div class="main">
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar"></div>
+
+  <!-- Workspace -->
+  <div class="workspace">
+    <div class="workspace-header">
+      <div class="mode">
+        <button class="active" data-mode="single" onclick="setMode('single')">Single</button>
+        <button data-mode="group" onclick="setMode('group')">Group</button>
+      </div>
+      <select class="target-select" id="targetSelect" style="display:none;">
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="msg-group">
+        <div class="msg-bubble assistant" style="max-width:90%;">
+          &#9889; Speedy (Q2_K) — главный оркестратор. 460MB, 1с загрузка.<br><br>
+          <b>&#128172; Single</b> — Speedy отвечает, делегирует задачи другим через DELEGATE:<br>
+          <b>&#128101; Group</b> — вопрос всем персонажам сразу<br>
+          <b>&#128187; Инструменты</b> — документы, команды, анализ<br><br>
+          <i>Пример: "проверь диск C:" — Speedy сама выполнит CMD: и вернёт результат</i>
+          <div class="time">Just now</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <textarea id="input" rows="1" placeholder="Type a message..." onkeydown="onInputKey(event)"></textarea>
+      <button class="tool-btn" onclick="document.getElementById('fileInput').click()">&#128206;</button>
+      <input type="file" id="fileInput" style="display:none" onchange="attachFile(this)">
+      <button id="cancelBtn" class="cancel-btn" style="display:none" onclick="cancelStream()">&#10007; Cancel</button>
+      <button class="send-btn" onclick="sendMessage()">
+        <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Tool Modals -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<script>
+let activeControllers = new Set();
+
+function cancelStream() {
+  activeControllers.forEach(c => c.abort());
+  activeControllers.clear();
+  document.querySelectorAll('.typing').forEach(el => el.remove());
+  document.getElementById('cancelBtn').style.display = 'none';
+  isStreaming = false;
+}
+
+function controllerFor(url) {
+  const ctrl = new AbortController();
+  activeControllers.add(ctrl);
+  const cleanup = () => { activeControllers.delete(ctrl); if (activeControllers.size === 0) document.getElementById('cancelBtn').style.display = 'none'; };
+  ctrl.signal.addEventListener('abort', cleanup);
+  return ctrl;
+}
+
+const CHAR_COLORS = {
+  local_tinyllama: { bg: '#3fb950', avatar: '&#129302;' },
+  local_tinyllama_q2: { bg: '#d29922', avatar: '&#9889;' },
+  local_tinyllama_q3: { bg: '#58a6ff', avatar: '&#128218;' },
+  local_tinyllama_q5: { bg: '#bc8cff', avatar: '&#128300;' },
+  local_tinyllama_q8: { bg: '#ff7b9c', avatar: '&#127775;' },
+  local_mistral7b: { bg: '#ff6b6b', avatar: '&#128154;' },
+};
+
+const CHAR_NAMES = {
+  local_tinyllama: 'Assistant',
+  local_tinyllama_q2: 'Speedy',
+  local_tinyllama_q3: 'Thinker',
+  local_tinyllama_q5: 'Analyst',
+  local_tinyllama_q8: 'Scholar',
+  local_mistral7b: 'Mistral',
+};
+
+const CHAR_DESC = {
+  local_tinyllama: 'Balanced assistant, docs & tools',
+  local_tinyllama_q2: 'Fast responses, simple tasks',
+  local_tinyllama_q3: 'Creative thinking, ideas',
+  local_tinyllama_q5: 'Deep analysis, code review',
+  local_tinyllama_q8: 'Best quality, complex reasoning',
+  local_mistral7b: 'Smart 7B model, tools & commands',
+};
+
+const MODEL_LABELS = {
+  local_tinyllama: 'Q4_K_M', local_tinyllama_q2: 'Q2_K',
+  local_tinyllama_q3: 'Q3_K_M', local_tinyllama_q5: 'Q5_K_M',
+  local_tinyllama_q8: 'Q8_0', local_mistral7b: 'Q4_K_M',
+};
+
+let providers = [];
+let activeMode = 'single';
+let activeChar = 'local_tinyllama_q2';
+let messages = [];
+let isStreaming = false;
+let currentToolModal = null;
+
+async function init() {
+  try {
+    const resp = await fetch('/api/providers');
+    const data = await resp.json();
+    providers = Object.entries(data).map(([k, v]) => ({ id: k, ...v }));
+    // Auto-select Speedy as default orchestrator
+    if (!activeChar || !providers.find(p => p.id === activeChar && p.cached)) {
+      const speedy = providers.find(p => p.id === 'local_tinyllama_q2' && p.cached);
+      if (speedy) activeChar = speedy.id;
+    }
+    renderSidebar();
+    populateTargets();
+    const online = providers.filter(p => p.cached).length;
+    const total = providers.length;
+    const state = online > 0 ? 'online' : 'offline';
+    updateStatus(state, `${online}/${total} online`);
+  } catch(e) {
+    updateStatus('offline', 'Backend not connected');
+  }
+}
+
+function renderSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  let html = '<div class="sidebar-title">Characters</div>';
+  providers.forEach(p => {
+    const colors = CHAR_COLORS[p.id] || { bg: '#58a6ff', avatar: '&#129302;' };
+    const name = CHAR_NAMES[p.id] || p.id;
+    const desc = CHAR_DESC[p.id] || '';
+    const model = MODEL_LABELS[p.id] || '';
+    const dotClass = p.cached ? 'online' : 'offline';
+    const dotTitle = p.cached ? 'Ready' : 'Not downloaded';
+    html += `
+      <div class="char-card ${activeChar === p.id ? 'active' : ''}" data-provider="${p.id}" onclick="${p.cached ? `selectChar('${p.id}')` : ''}">
+        <div class="avatar" style="background:${colors.bg}22;color:${colors.bg}">${colors.avatar}</div>
+        <div class="info">
+          <div class="name">${name}</div>
+          <div class="desc">${p.cached ? desc : 'Click to download'}</div>
+        </div>
+        ${p.cached
+          ? `<span class="model-badge">${model}</span><span class="dot ${dotClass}" title="${dotTitle}"></span>`
+          : `<button class="download-btn" onclick="event.stopPropagation();downloadModel('${p.id}')">Download</button>`
+        }
+      </div>`;
+  });
+  sidebar.innerHTML = html;
+}
+
+async function downloadModel(provider) {
+  const btn = document.querySelector(`.char-card[data-provider="${provider}"] .download-btn`);
+  if (btn) { btn.textContent = 'Downloading...'; btn.disabled = true; }
+  try {
+    const resp = await fetch('/api/download', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ provider })
+    });
+    const data = await resp.json();
+    if (data.status === 'ok') {
+      // Reload providers
+      await init();
+      addMessage('Model downloaded and loaded!', 'assistant', provider);
+    } else {
+      addMessage('Download failed: ' + (data.error || 'unknown'), 'assistant');
+    }
+  } catch(e) {
+    addMessage('Download error: ' + e.message, 'assistant');
+  }
+}
+
+function populateTargets() {
+  const sel = document.getElementById('targetSelect');
+  let opts = '<option value="all">All 5 Characters</option>';
+  providers.forEach(p => {
+    if (p.cached) {
+      opts += `<option value="${p.id}">${CHAR_NAMES[p.id] || p.id}</option>`;
+    }
+  });
+  sel.innerHTML = opts;
+}
+
+function selectChar(id) {
+  activeChar = id;
+  document.querySelectorAll('.char-card').forEach(c => c.classList.remove('active'));
+  const card = document.querySelector(`.char-card[data-provider="${id}"]`);
+  if (card) card.classList.add('active');
+  document.getElementById('targetSelect').value = id;
+}
+
+function setMode(mode) {
+  activeMode = mode;
+  document.querySelectorAll('.mode button').forEach(b => b.classList.remove('active'));
+  document.querySelector(`.mode button[data-mode="${mode}"]`).classList.add('active');
+}
+
+function updateStatus(state, text) {
+  const dot = document.getElementById('statusDot');
+  dot.className = 'dot ' + state;
+  document.getElementById('statusText').textContent = text;
+}
+
+function addMessage(content, role, author) {
+  const container = document.getElementById('messages');
+  const time = new Date().toLocaleTimeString();
+
+  if (role === 'user') {
+    const group = document.createElement('div');
+    group.className = 'msg-group';
+    group.innerHTML = `<div class="msg-bubble user">${escapeHtml(content)}<div class="time">${time}</div></div>`;
+    container.appendChild(group);
+    container.scrollTop = container.scrollHeight;
+    return;
+  }
+
+  if (author) {
+    const colors = CHAR_COLORS[author] || { avatar: '&#129302;' };
+    const name = CHAR_NAMES[author] || author;
+    const group = document.createElement('div');
+    group.className = 'msg-group';
+    group.id = 'msg-' + author;
+    group.innerHTML = `
+      <div class="msg-author"><span class="author-avatar">${colors.avatar}</span> ${name}</div>
+      <div class="msg-bubble assistant"><div class="msg-text">${escapeHtml(content)}</div><div class="time">${time}</div></div>`;
+    container.appendChild(group);
+    container.scrollTop = container.scrollHeight;
+    return;
+  }
+
+  // Append to last assistant
+  const last = container.lastElementChild;
+  if (last && last.classList.contains('msg-group') && last.id) {
+    const bubble = last.querySelector('.msg-bubble');
+    if (bubble) {
+      bubble.querySelector('.msg-text').innerHTML = escapeHtml(content);
+      return;
+    }
+  }
+
+  const group = document.createElement('div');
+  group.className = 'msg-group';
+  group.innerHTML = `<div class="msg-bubble assistant"><div class="msg-text">${escapeHtml(content)}</div><div class="time">${time}</div></div>`;
+  container.appendChild(group);
+  container.scrollTop = container.scrollHeight;
+}
+
+function createStreamBubble(author) {
+  const container = document.getElementById('messages');
+  const colors = CHAR_COLORS[author] || { avatar: '&#129302;' };
+  const name = CHAR_NAMES[author] || author;
+  const group = document.createElement('div');
+  group.className = 'msg-group';
+  group.id = 'msg-' + author;
+  group.innerHTML = `
+    <div class="msg-author"><span class="author-avatar">${colors.avatar}</span> ${name}</div>
+    <div class="msg-bubble assistant"><div class="msg-text"></div><div class="time">${new Date().toLocaleTimeString()}</div></div>`;
+  container.appendChild(group);
+  container.scrollTop = container.scrollHeight;
+  return {
+    el: group,
+    get content() { return group.querySelector('.msg-text').textContent; },
+    set content(v) { group.querySelector('.msg-text').textContent = v; }
+  };
+}
+
+function showTyping(author) {
+  const container = document.getElementById('messages');
+  const colors = CHAR_COLORS[author] || { avatar: '&#129302;' };
+  const name = CHAR_NAMES[author] || author;
+  const group = document.createElement('div');
+  group.className = 'msg-group';
+  group.id = 'typing-' + author;
+  group.innerHTML = `
+    <div class="msg-author"><span class="author-avatar">${colors.avatar}</span> ${name}</div>
+    <div class="msg-bubble assistant typing"></div>`;
+  container.appendChild(group);
+  container.scrollTop = container.scrollHeight;
+}
+
+function hideTyping(author) {
+  const el = document.getElementById('typing-' + author);
+  if (el) el.remove();
+}
+
+async function sendMessage() {
+  const input = document.getElementById('input');
+  const text = input.value.trim();
+  if (!text || isStreaming) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+  addMessage(text, 'user');
+
+  isStreaming = true;
+  document.getElementById('cancelBtn').style.display = 'inline-block';
+
+  try {
+    if (activeMode === 'group') {
+      await sendGroupMessage(text);
+    } else {
+      await sendSingleMessage(text, activeChar);
+    }
+  } catch(e) {
+    if (e.name !== 'AbortError') {
+      addMessage('Error: ' + e.message, 'assistant');
+    }
+  }
+  cancelStream();
+}
+
+async function readStream(resp, provider, bubble) {
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line) continue;
+      const ev = JSON.parse(line);
+      if (ev.token) {
+        bubble.content += ev.token;
+        bubble.el.querySelector('.msg-text').textContent = bubble.content;
+        bubble.el.scrollIntoView({ block: 'end' });
+      } else if (ev.cmd) {
+        addMessage('CMD: ' + ev.cmd + '\n' + (ev.out || ''), 'assistant', provider);
+      } else if (ev.delegate) {
+        bubble.content += '\n[' + ev.delegate + ']: ' + ev.token;
+        bubble.el.querySelector('.msg-text').textContent = bubble.content;
+      } else if (ev.done) {
+        bubble.content = ev.response || bubble.content;
+        bubble.el.querySelector('.msg-text').textContent = bubble.content;
+      } else if (ev.error) {
+        addMessage('Error: ' + ev.error, 'assistant', provider);
+      }
+    }
+  }
+}
+
+async function sendSingleMessage(text, provider) {
+  showTyping(provider);
+  const ctrl = controllerFor();
+  const bubble = createStreamBubble(provider);
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ message: text, provider: provider }),
+      signal: ctrl.signal
+    });
+    hideTyping(provider);
+    await readStream(resp, provider, bubble);
+  } catch(e) {
+    hideTyping(provider);
+    if (e.name !== 'AbortError') {
+      bubble.content += '\n[Error: ' + e.message + ']';
+      bubble.el.querySelector('.msg-text').textContent = bubble.content;
+    }
+  }
+}
+
+async function sendGroupMessage(text) {
+  let targets = providers.filter(p => p.healthy).map(p => p.id);
+  targets.forEach(t => showTyping(t));
+  await Promise.all(targets.map(async (t) => {
+    const ctrl = controllerFor();
+    const bubble = createStreamBubble(t);
+    try {
+      const resp = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ message: text, provider: t }),
+        signal: ctrl.signal
+      });
+      hideTyping(t);
+      await readStream(resp, t, bubble);
+    } catch(e) {
+      hideTyping(t);
+      if (e.name !== 'AbortError') {
+        bubble.content += '\n[Error: ' + e.message + ']';
+        bubble.el.querySelector('.msg-text').textContent = bubble.content;
+      }
+    }
+  }));
+}
+
+// Tools
+function openToolModal(type) {
+  currentToolModal = type;
+  const modal = document.getElementById('modalContent');
+
+  if (type === 'document') {
+    modal.innerHTML = `
+      <h2>&#128196; Create Document</h2>
+      <div class="field"><label>Title</label><input id="docTitle" placeholder="Document title"></div>
+      <div class="field"><label>Content</label><textarea id="docContent" placeholder="Document content..."></textarea></div>
+      <div class="field">
+        <label>Format</label>
+        <select id="docFormat"><option value="txt">Plain Text</option><option value="md">Markdown</option><option value="html">HTML</option></select>
+      </div>
+      <div class="field"><label>Agent to create</label>
+        <select id="docAgent">${providers.map(p => `<option value="${p.id}">${CHAR_NAMES[p.id] || p.id}</option>`).join('')}</select>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary" onclick="closeModal()">Cancel</button>
+        <button class="primary" onclick="createDocument()">Create</button>
+      </div>`;
+  } else if (type === 'email') {
+    modal.innerHTML = `
+      <h2>&#9993; Send Email</h2>
+      <div class="field"><label>To</label><input id="emailTo" placeholder="recipient@example.com"></div>
+      <div class="field"><label>Subject</label><input id="emailSubject" placeholder="Subject"></div>
+      <div class="field"><label>Body</label><textarea id="emailBody" placeholder="Email body..."></textarea></div>
+      <div class="field">
+        <label>Agent to compose</label>
+        <select id="emailAgent">${providers.map(p => `<option value="${p.id}">${CHAR_NAMES[p.id] || p.id}</option>`).join('')}</select>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary" onclick="closeModal()">Cancel</button>
+        <button class="primary" onclick="sendEmail()">Send</button>
+      </div>`;
+  } else if (type === 'shell') {
+    modal.innerHTML = `
+      <h2>&#9881; Execute Command</h2>
+      <div class="field"><label>Command</label><textarea id="shellCmd" placeholder="powershell command..." rows="3"></textarea></div>
+      <div class="field"><label>Timeout (s)</label><input id="shellTimeout" value="30" type="number"></div>
+      <div class="modal-actions">
+        <button class="secondary" onclick="closeModal()">Cancel</button>
+        <button class="primary" onclick="execShell()">Execute</button>
+      </div>`;
+  } else if (type === 'documents') {
+    loadDocuments();
+    return;
+  } else if (type === 'analyze') {
+    modal.innerHTML = `
+      <h2>&#128200; Analyze With All Characters</h2>
+      <div class="field"><label>Task / Question for analysis</label>
+        <textarea id="analyzeTask" placeholder="Describe what you want analyzed..." rows="4"></textarea>
+      </div>
+      <div class="field"><label>Mode</label>
+        <select id="analyzeMode">
+          <option value="independent">Each answers independently</option>
+          <option value="debate">Debate (critique each other)</option>
+          <option value="consensus">Find consensus</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary" onclick="closeModal()">Cancel</button>
+        <button class="primary" onclick="startAnalysis()">Analyze</button>
+      </div>`;
+  }
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+}
+
+async function createDocument() {
+  const title = document.getElementById('docTitle').value;
+  const content = document.getElementById('docContent').value;
+  const format = document.getElementById('docFormat').value;
+  const agent = document.getElementById('docAgent').value;
+  closeModal();
+
+  try {
+    const resp = await fetch('/api/tool/document', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ title, content, format, agent })
+    });
+    const data = await resp.json();
+    if (data.path) addMessage('Document created: ' + data.path, 'assistant', agent);
+    else addMessage('Error: ' + (data.error || 'unknown'), 'assistant');
+  } catch(e) {
+    addMessage('Error: ' + e.message, 'assistant');
+  }
+}
+
+async function sendEmail() {
+  const to = document.getElementById('emailTo').value;
+  const subject = document.getElementById('emailSubject').value;
+  const body = document.getElementById('emailBody').value;
+  const agent = document.getElementById('emailAgent').value;
+  closeModal();
+
+  try {
+    const resp = await fetch('/api/tool/email', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ to, subject, body, agent })
+    });
+    const data = await resp.json();
+    if (data.sent) addMessage('Email sent to ' + to, 'assistant', agent);
+    else addMessage('Error: ' + (data.error || 'unknown'), 'assistant');
+  } catch(e) {
+    addMessage('Error: ' + e.message, 'assistant');
+  }
+}
+
+async function execShell() {
+  const cmd = document.getElementById('shellCmd').value;
+  const timeout = parseInt(document.getElementById('shellTimeout').value) || 30;
+  closeModal();
+
+  try {
+    const resp = await fetch('/api/tool/shell', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ command: cmd, timeout })
+    });
+    const data = await resp.json();
+    const output = '```\n' + (data.stdout || '') + (data.stderr ? '\nSTDERR:\n' + data.stderr : '') + '\n```';
+    addMessage('Command executed (exit code: ' + (data.returncode ?? '?') + ')\n' + output, 'assistant');
+  } catch(e) {
+    addMessage('Error: ' + e.message, 'assistant');
+  }
+}
+
+async function startAnalysis() {
+  const task = document.getElementById('analyzeTask').value;
+  const mode = document.getElementById('analyzeMode').value;
+  closeModal();
+  if (!task) return;
+
+  addMessage('Analysis task: ' + task, 'user');
+  const targets = providers.filter(p => p.healthy).map(p => p.id);
+  targets.forEach(t => showTyping(t));
+
+  await Promise.all(targets.map(async (t) => {
+    const ctrl = controllerFor();
+    try {
+      const prompt = mode === 'debate'
+        ? `Analyze this critically. After your analysis, point out flaws in other analysts' likely approaches: ${task}`
+        : mode === 'consensus'
+        ? `Analyze this and suggest a consensus answer that all experts would agree on: ${task}`
+        : `Analyze this thoroughly: ${task}`;
+      const resp = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ message: prompt, provider: t }),
+        signal: ctrl.signal
+      });
+      const data = await resp.json();
+      hideTyping(t);
+      if (data.response) {
+        addMessage(data.response, 'assistant', t);
+      }
+    } catch(e) {
+      hideTyping(t);
+      if (e.name !== 'AbortError') {
+        addMessage('Error: ' + e.message, 'assistant', t);
+      }
+    }
+  }));
+}
+
+function attachFile(input) {
+  if (input.files.length > 0) {
+    addMessage('File attached: ' + input.files[0].name, 'user');
+  }
+}
+
+function onInputKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+  e.target.style.height = 'auto';
+  e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+}
+
+async function loadDocuments() {
+  const modal = document.getElementById('modalContent');
+  modal.innerHTML = '<h2>Loading documents...</h2>';
+  document.getElementById('modalOverlay').classList.add('open');
+  try {
+    const resp = await fetch('/api/documents');
+    const data = await resp.json();
+    let html = '<h2>&#128193; Documents</h2><div style="max-height:50vh;overflow-y:auto;">';
+    if (data.files) {
+      data.files.forEach(f => {
+        const icon = f.name.match(/\.(txt|md|py|js|html|css|json|xml|yaml|ini|cfg|log|bat|ps1)$/i) ? '&#128196;' : '&#128230;';
+        html += `<div style="padding:8px;border-bottom:1px solid var(--border);cursor:pointer;font-size:0.85rem;" onclick="openDocument('${escapeHtml(f.path)}')">
+          ${icon} <span style="color:var(--text-dim);font-size:0.75rem;">${f.dir}</span> ${escapeHtml(f.name)}
+          <span style="float:right;color:var(--text-dim);font-size:0.75rem;">${f.size > 1024 ? Math.round(f.size/1024)+'KB' : f.size+'B'}</span>
+        </div>`;
+      });
+    }
+    html += '</div><div class="modal-actions"><button class="secondary" onclick="closeModal()">Close</button></div>';
+    modal.innerHTML = html;
+  } catch(e) {
+    modal.innerHTML = '<h2>Error</h2><p>'+e.message+'</p><div class="modal-actions"><button class="secondary" onclick="closeModal()">Close</button></div>';
+  }
+}
+
+async function openDocument(path) {
+  const modal = document.getElementById('modalContent');
+  modal.innerHTML = '<h2>Loading...</h2>';
+  try {
+    const resp = await fetch('/api/documents?path=' + encodeURIComponent(path));
+    const data = await resp.json();
+    const ext = path.split('.').pop().toLowerCase();
+    const isText = ['txt','md','py','js','html','css','json','xml','yaml','ini','cfg','log','bat','ps1','csv','env','gitignore','dockerfile','yml','toml','conf'].includes(ext);
+    const content = data.content || '';
+    modal.innerHTML = `<h2>&#128196; ${escapeHtml(path.split('\\').pop())}</h2>
+      <pre style="background:var(--bg);padding:12px;border-radius:8px;font-size:0.8rem;max-height:50vh;overflow-y:auto;white-space:pre-wrap;word-break:break-all;">${isText ? escapeHtml(content.slice(0,10000)) : '(binary file)'}</pre>
+      <div class="modal-actions"><button class="secondary" onclick="closeModal()">Close</button></div>`;
+  } catch(e) {
+    modal.innerHTML = '<h2>Error</h2><p>'+e.message+'</p><div class="modal-actions"><button class="secondary" onclick="closeModal()">Close</button></div>';
+  }
+}
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+// Init on load
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

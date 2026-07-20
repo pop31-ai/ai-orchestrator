@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Orchestrator</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#c9d1d9;--dim:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--yellow:#d29922}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+a{color:var(--accent);text-decoration:none}
+
+/* Layout */
+.app{display:flex;height:100vh;flex-direction:column}
+.topbar{padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.topbar h1{font-size:15px;font-weight:600;white-space:nowrap}
+.topbar .status{font-size:11px;color:var(--dim);margin-left:auto}
+
+/* Tabs */
+.tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;gap:0}
+.tab{padding:8px 16px;font-size:12px;background:transparent;border:none;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.tab:hover{color:var(--text);background:rgba(88,166,255,.05)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab .close{font-size:14px;opacity:.4;margin-left:4px;border:none;background:none;color:inherit;cursor:pointer;line-height:1}
+.tab .close:hover{opacity:1;color:var(--red)}
+.tab-add{padding:8px 12px;background:none;border:none;color:var(--dim);cursor:pointer;font-size:16px}
+.tab-add:hover{color:var(--accent)}
+
+/* Messages */
+.messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+.msg{display:flex;gap:8px;max-width:85%;animation:fadeIn .15s ease}
+.msg.user{align-self:flex-end;flex-direction:row-reverse}
+.msg .avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;background:var(--surface);border:1px solid var(--border)}
+.msg .bubble{padding:8px 12px;border-radius:10px;font-size:13px;line-height:1.5;word-wrap:break-word}
+.msg.agent .bubble{background:var(--surface);border:1px solid var(--border);border-top-left-radius:4px}
+.msg.user .bubble{background:var(--accent);color:#0d1117;border-top-right-radius:4px}
+.msg.tool .bubble{background:rgba(210,153,34,.08);border:1px solid var(--yellow);border-radius:6px;font-family:monospace;font-size:11px;color:var(--yellow)}
+.msg .meta{font-size:10px;color:var(--dim);margin-top:3px}
+.msg.user .meta{text-align:right}
+.msg.error .bubble{background:rgba(248,81,73,.1);border:1px solid var(--red);color:var(--red)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+
+/* Typing indicator */
+.typing{display:flex;gap:4px;padding:6px 10px;color:var(--dim);font-size:11px}
+.typing-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);animation:pulse 1.4s infinite ease-in-out}
+.typing-dot:nth-child(2){animation-delay:.2s}
+.typing-dot:nth-child(3){animation-delay:.4s}
+@keyframes pulse{0%,80%,100%{opacity:.3;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}
+
+/* Input */
+.input-area{padding:10px 16px;background:var(--surface);border-top:1px solid var(--border)}
+.input-row{display:flex;gap:8px}
+.input-row input{flex:1;padding:9px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px}
+.input-row input:focus{outline:none;border-color:var(--accent)}
+.input-row button{padding:9px 18px;border-radius:6px;border:none;font-weight:600;cursor:pointer;font-size:13px}
+.btn-send{background:var(--accent);color:#0d1117}
+.btn-send:hover{filter:brightness(1.1)}
+.btn-send:disabled{opacity:.4;cursor:not-allowed}
+.btn-cancel{background:var(--red);color:#fff;display:none}
+.btn-cancel:hover{filter:brightness(1.1)}
+.hints{margin-top:6px;font-size:10px;color:var(--dim);display:flex;gap:14px;flex-wrap:wrap}
+.hints kbd{background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border);font-family:monospace;font-size:9px}
+
+/* Modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;width:380px;max-width:90vw}
+.modal h2{font-size:14px;margin-bottom:12px}
+.modal label{display:block;font-size:12px;color:var(--dim);margin-bottom:4px;margin-top:10px}
+.modal input,.modal select,.modal textarea{width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px}
+.modal textarea{height:60px;resize:vertical;font-family:inherit}
+.modal .actions{display:flex;gap:8px;margin-top:14px;justify-content:flex-end}
+.modal .actions button{padding:7px 16px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:500}
+
+/* Empty state */
+.empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--dim);font-size:13px;flex-direction:column;gap:8px}
+.img-thumb img{max-width:256px;max-height:256px;border-radius:6px;border:1px solid var(--border);margin:4px 0;cursor:pointer}
+.img-thumb img:hover{filter:brightness(1.1)}
+.img-frame{display:inline-flex;flex-direction:column;align-items:flex-start;margin:4px 0}
+.img-frame img{max-width:192px;max-height:192px;border-radius:4px;border:1px solid var(--border);cursor:pointer}
+.img-frame img:hover{filter:brightness(1.1)}
+.frame-label{font-size:10px;color:var(--dim);margin-bottom:2px;font-family:monospace}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <h1>AI Orchestrator</h1>
+    <span class="status" id="statusText">Ready</span>
+  </div>
+  <div class="tabs" id="tabsBar">
+    <button class="tab-add" onclick="openModal()" title="New agent tab">+</button>
+  </div>
+  <div class="messages" id="messages">
+    <div class="empty" id="emptyState">
+      <span>Select an agent tab or create a new one</span>
+    </div>
+  </div>
+  <div class="input-area">
+    <div class="input-row">
+      <input type="text" id="msgInput" placeholder="Type a message..." disabled
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}">
+      <button class="btn-send" id="sendBtn" onclick="sendMsg()" disabled>Send</button>
+      <button class="btn-cancel" id="cancelBtn" onclick="cancelSend()">Cancel</button>
+    </div>
+    <div class="hints">
+      <span><kbd>search</kbd> query</span>
+      <span><kbd>run</kbd> cmd</span>
+      <span><kbd>git</kbd> clone/status/log</span>
+      <span><kbd>read file</kbd> path</span>
+      <span><kbd>list files</kbd></span>
+      <span><kbd>process list</kbd></span>
+    </div>
+  </div>
+</div>
+
+<!-- New Tab Modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h2>New Agent Tab</h2>
+    <label>Agent name</label>
+    <select id="modalAgent"></select>
+    <label>Or create custom</label>
+    <input id="modalCustomName" placeholder="custom_agent_name">
+    <label>System prompt (for custom)</label>
+    <textarea id="modalPrompt" placeholder="You are a helpful assistant..."></textarea>
+    <div class="actions">
+      <button onclick="closeModal()" style="background:var(--border);color:var(--text)">Cancel</button>
+      <button onclick="createTabFromModal()" class="btn-send">Create</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const AGENTS = {};
+let tabs = new Map();
+let activeTabId = null;
+let abortCtrl = null;
+
+// --- Init ---
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadAgents();
+  renderTabs();
+});
+
+async function loadAgents() {
+  try {
+    const res = await fetch('/api/agents');
+    const data = await res.json();
+    for (const [name, info] of Object.entries(data.agents)) {
+      AGENTS[name] = info;
+    }
+  } catch(e) {
+    console.error('Failed to load agents:', e);
+  }
+  populateModalSelect();
+}
+
+function populateModalSelect() {
+  const sel = document.getElementById('modalAgent');
+  sel.innerHTML = '';
+  for (const name of Object.keys(AGENTS)) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  }
+}
+
+// --- Tabs ---
+function createTab(agentName) {
+  const id = 't' + Date.now() + Math.random().toString(36).slice(2,6);
+  tabs.set(id, { id, agent: agentName, history: [], sending: false });
+  switchTab(id);
+  renderTabs();
+  return id;
+}
+
+function switchTab(tabId) {
+  if (!tabs.has(tabId)) return;
+  activeTabId = tabId;
+  const tab = tabs.get(tabId);
+  document.getElementById('statusText').textContent = 'Agent: ' + tab.agent;
+  document.getElementById('msgInput').disabled = false;
+  document.getElementById('sendBtn').disabled = false;
+  document.getElementById('emptyState').style.display = 'none';
+  renderMessages(tab);
+  renderTabs();
+  document.getElementById('msgInput').focus();
+}
+
+function closeTab(tabId, e) {
+  if (e) e.stopPropagation();
+  tabs.delete(tabId);
+  if (activeTabId === tabId) {
+    const first = tabs.keys().next().value;
+    if (first) switchTab(first);
+    else {
+      activeTabId = null;
+      document.getElementById('messages').innerHTML = '<div class="empty" id="emptyState"><span>No tabs open</span></div>';
+      document.getElementById('msgInput').disabled = true;
+      document.getElementById('sendBtn').disabled = true;
+    }
+  }
+  renderTabs();
+}
+
+function renderTabs() {
+  const bar = document.getElementById('tabsBar');
+  bar.querySelectorAll('.tab').forEach(t => t.remove());
+  const addBtn = bar.querySelector('.tab-add');
+
+  for (const [id, tab] of tabs) {
+    const btn = document.createElement('button');
+    btn.className = 'tab' + (activeTabId === id ? ' active' : '');
+    btn.onclick = () => switchTab(id);
+    btn.innerHTML = `<span>${tab.agent}</span><button class="close" onclick="closeTab('${id}',event)" title="Close">&times;</button>`;
+    bar.insertBefore(btn, addBtn);
+  }
+}
+
+// --- Messages ---
+function renderMessages(tab) {
+  const area = document.getElementById('messages');
+  area.innerHTML = '';
+  if (!tab.history.length) {
+    area.innerHTML = `<div class="empty" id="emptyState"><span>Start chatting with ${tab.agent}</span></div>`;
+    return;
+  }
+  for (const msg of tab.history) {
+    appendMsgEl(msg);
+  }
+  area.scrollTop = area.scrollHeight;
+}
+
+function appendMsgEl(msg) {
+  const area = document.getElementById('messages');
+  const empty = document.getElementById('emptyState');
+  if (empty) empty.remove();
+
+  const div = document.createElement('div');
+  const cls = msg.role === 'user' ? 'user' : msg.role === 'tool' ? 'tool' : msg.role === 'error' ? 'error' : 'agent';
+  div.className = 'msg ' + cls;
+
+  const avatar = cls === 'user' ? '👤' : cls === 'tool' ? '🔧' : cls === 'error' ? '❌' : '🤖';
+  const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : '';
+  const sender = cls === 'user' ? 'You' : cls === 'tool' ? 'Tool' : AGENTS[msg.agent || '']?.description?.slice(0,20) || msg.agent || 'Agent';
+
+  const contentHtml = renderContent(msg.content);
+
+  div.innerHTML = `
+    <div class="avatar">${avatar}</div>
+    <div>
+      <div class="bubble">${contentHtml}</div>
+      <div class="meta">${sender} &middot; ${time}</div>
+    </div>
+  `;
+  document.getElementById('messages').appendChild(div);
+}
+
+function renderContent(text) {
+  let html = escapeHtml(text);
+
+  // [THUMBNILL]data:...[/THUMBNAIL]
+  html = html.replace(/\[THUMBNAIL\](data:image\/[^;\]]+;base64,[^\]]+)\[\/THUMBNAIL\]/g,
+    '<div class="img-thumb"><img src="$1" loading="lazy"></div>');
+
+  // [FRAME N]data:...[/FRAME]
+  html = html.replace(/\[FRAME\s+(\d+)[^\]]*\](data:image\/[^;\]]+;base64,[^\]]+)\[\/FRAME\]/g,
+    '<div class="img-frame"><span class="frame-label">Frame $1</span><img src="$2" loading="lazy"></div>');
+
+  // [VIDEO FRAME Ns]data:...[/VIDEO FRAME]
+  html = html.replace(/\[VIDEO FRAME\s+([\d.]+)s?\](data:image\/[^;\]]+;base64,[^\]]+)\[\/VIDEO FRAME\]/g,
+    '<div class="img-frame"><span class="frame-label">Frame @ $1s</span><img src="$2" loading="lazy"></div>');
+
+  // Preserve newlines
+  html = html.replace(/\n/g, '<br>');
+
+  return html;
+}
+
+function addStreamingMsg() {
+  const area = document.getElementById('messages');
+  const empty = document.getElementById('emptyState');
+  if (empty) empty.remove();
+
+  const div = document.createElement('div');
+  div.className = 'msg agent';
+  div.id = 'streamingMsg';
+  div.innerHTML = `
+    <div class="avatar">🤖</div>
+    <div>
+      <div class="bubble" id="streamingBubble"></div>
+      <div class="meta">thinking...</div>
+    </div>
+  `;
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+}
+
+function updateStreamingMsg(text) {
+  const bubble = document.getElementById('streamingBubble');
+  if (bubble) {
+    bubble.textContent = text;
+    document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+  }
+}
+
+function finalizeStreamingMsg() {
+  const div = document.getElementById('streamingMsg');
+  if (div) div.id = '';
+}
+
+function addToolMsg(content) {
+  appendMsgEl({ role: 'tool', content: typeof content === 'string' ? content : JSON.stringify(content), timestamp: new Date().toISOString() });
+}
+
+function addErrorMsg(content) {
+  appendMsgEl({ role: 'error', content, timestamp: new Date().toISOString() });
+}
+
+// --- Send ---
+async function sendMsg() {
+  const input = document.getElementById('msgInput');
+  const text = input.value.trim();
+  if (!text || !activeTabId) return;
+
+  const tab = tabs.get(activeTabId);
+  if (!tab || tab.sending) return;
+
+  input.value = '';
+  tab.sending = true;
+  tab.history.push({ role: 'user', content: text, timestamp: new Date().toISOString() });
+  appendMsgEl({ role: 'user', content: text, timestamp: new Date().toISOString() });
+
+  setInputState(true);
+  addStreamingMsg();
+
+  let fullText = '';
+  abortCtrl = new AbortController();
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: tab.agent, message: text }),
+      signal: abortCtrl.signal,
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const data = JSON.parse(line);
+          if (data.token) {
+            fullText += data.token;
+            updateStreamingMsg(fullText);
+          } else if (data.tool_results) {
+            for (const r of data.tool_results) {
+              addToolMsg(typeof r === 'string' ? r : JSON.stringify(r));
+            }
+          } else if (data.done) {
+            // done
+          } else if (data.error) {
+            addErrorMsg(data.error);
+          }
+        } catch(e) { /* skip bad json */ }
+      }
+    }
+
+    if (fullText) {
+      tab.history.push({ role: 'agent', content: fullText, agent: tab.agent, timestamp: new Date().toISOString() });
+    }
+  } catch(e) {
+    if (e.name === 'AbortError') {
+      addToolMsg('Request cancelled');
+    } else {
+      addErrorMsg(e.message);
+    }
+  } finally {
+    finalizeStreamingMsg();
+    tab.sending = false;
+    setInputState(false);
+    abortCtrl = null;
+  }
+}
+
+function cancelSend() {
+  if (abortCtrl) abortCtrl.abort();
+}
+
+function setInputState(sending) {
+  document.getElementById('msgInput').disabled = sending;
+  document.getElementById('sendBtn').disabled = sending;
+  document.getElementById('cancelBtn').style.display = sending ? 'inline-block' : 'none';
+  document.getElementById('sendBtn').style.display = sending ? 'none' : 'inline-block';
+}
+
+// --- Modal ---
+function openModal() {
+  populateModalSelect();
+  document.getElementById('modalCustomName').value = '';
+  document.getElementById('modalPrompt').value = '';
+  document.getElementById('modal').classList.add('show');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('show');
+}
+
+function createTabFromModal() {
+  const select = document.getElementById('modalAgent');
+  const customName = document.getElementById('modalCustomName').value.trim();
+  const prompt = document.getElementById('modalPrompt').value.trim();
+
+  let agentName;
+  if (customName) {
+    agentName = customName;
+    AGENTS[agentName] = { description: prompt || 'Custom agent' };
+  } else {
+    agentName = select.value;
+  }
+
+  if (!agentName) return;
+  closeModal();
+  createTab(agentName);
+}
+
+function escapeHtml(t) {
+  const d = document.createElement('div');
+  d.textContent = t;
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>

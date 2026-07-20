@@ -494,6 +494,118 @@ class FileGrepTool(Tool):
             )
 
 
+class WebSearchTool(Tool):
+    """Search the web using DuckDuckGo"""
+
+    def __init__(self):
+        super().__init__(
+            name="web_search",
+            description="Search the web for current information",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "max_results": {"type": "integer", "description": "Maximum results (default: 5)"}
+                },
+                "required": ["query"]
+            }
+        )
+
+    async def execute(self, arguments: Dict[str, Any], context: AgentContext) -> ToolResult:
+        query = arguments["query"]
+        max_results = arguments.get("max_results", 5)
+
+        try:
+            import aiohttp
+            from urllib.parse import quote
+
+            url = f"https://html.duckduckgo.com/html/?q={quote(query)}"
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+            async with aiohttp.ClientSession() as sess:
+                async with sess.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    html = await resp.text()
+
+            results = []
+            for match in re.finditer(r'<a rel="nofollow" class="result__a" href="(.*?)">.*?<a class="result__snippet"[^>]*>(.*?)</a>', html, re.DOTALL):
+                if len(results) >= max_results:
+                    break
+                link = match.group(1)
+                snippet = re.sub(r'<[^>]+>', '', match.group(2)).strip()
+                results.append({"link": link, "snippet": snippet})
+
+            return ToolResult(
+                tool_call_id=context.metadata.get("tool_call_id", ""),
+                name=self.name,
+                result={"query": query, "results": results, "count": len(results)},
+                error=None
+            )
+
+        except Exception as e:
+            return ToolResult(
+                tool_call_id=context.metadata.get("tool_call_id", ""),
+                name=self.name,
+                result=None,
+                error=str(e)
+            )
+
+
+class WebFetchTool(Tool):
+    """Fetch and extract text from a web page"""
+
+    def __init__(self):
+        super().__init__(
+            name="web_fetch",
+            description="Fetch a web page and extract its text content",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "URL to fetch"},
+                    "max_chars": {"type": "integer", "description": "Maximum characters to return (default: 5000)"}
+                },
+                "required": ["url"]
+            }
+        )
+
+    async def execute(self, arguments: Dict[str, Any], context: AgentContext) -> ToolResult:
+        url = arguments["url"]
+        max_chars = arguments.get("max_chars", 5000)
+
+        try:
+            import aiohttp
+            from urllib.parse import urlparse
+
+            parsed = urlparse(url)
+            if not parsed.scheme:
+                url = "https://" + url
+
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+            async with aiohttp.ClientSession() as sess:
+                async with sess.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15), allow_redirects=True) as resp:
+                    html = await resp.text()
+
+            text = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
+            text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL)
+            text = re.sub(r'<[^>]+>', ' ', text)
+            text = re.sub(r'\s+', ' ', text).strip()
+
+            return ToolResult(
+                tool_call_id=context.metadata.get("tool_call_id", ""),
+                name=self.name,
+                result={"url": url, "content": text[:max_chars], "chars": len(text[:max_chars])},
+                error=None
+            )
+
+        except Exception as e:
+            return ToolResult(
+                tool_call_id=context.metadata.get("tool_call_id", ""),
+                name=self.name,
+                result=None,
+                error=str(e)
+            )
+
+
 def register_builtin_tools(registry):
     """Register all built-in tools"""
     tools = [
@@ -504,6 +616,8 @@ def register_builtin_tools(registry):
         FileListTool(),
         FileGlobTool(),
         FileGrepTool(),
+        WebSearchTool(),
+        WebFetchTool(),
     ]
 
     for tool in tools:

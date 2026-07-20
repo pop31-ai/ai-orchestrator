@@ -83,6 +83,11 @@ class AgentConfig:
     confirm_actions: bool = True
     allowed_tools: List[str] = None
     sandbox_mode: bool = True
+    system_prompt: str = "You are a helpful AI assistant."
+    model: str = ""
+    max_tool_iterations: int = 20
+    max_context_tokens: int = 8192
+    enable_tools: bool = True
 
     def __post_init__(self):
         if self.allowed_tools is None:
@@ -228,6 +233,92 @@ DEFAULT_PROVIDERS = {
         enabled=False,
         priority=7,
     ),
+    "local_tinyllama": AIProviderConfig(
+        name="TinyLlama (Built-in)",
+        type="local_ctransformers",
+        model="tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+        enabled=True,
+        priority=100,
+        extra_params={
+            "hf_repo": "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
+            "hf_file": "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+            "model_type": "llama",
+            "repetition_penalty": 1.15,
+            "repeat_last_n": 64,
+        }
+    ),
+    "local_tinyllama_q2": AIProviderConfig(
+        name="TinyLlama Q2_K (Fast)",
+        type="local_ctransformers",
+        model="tinyllama-1.1b-chat-v1.0.Q2_K.gguf",
+        enabled=True,
+        priority=90,
+        extra_params={
+            "hf_repo": "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
+            "hf_file": "tinyllama-1.1b-chat-v1.0.Q2_K.gguf",
+            "model_type": "llama",
+            "repetition_penalty": 1.15,
+            "repeat_last_n": 64,
+        }
+    ),
+    "local_tinyllama_q3": AIProviderConfig(
+        name="TinyLlama Q3_K (Balanced)",
+        type="local_ctransformers",
+        model="tinyllama-1.1b-chat-v1.0.Q3_K_M.gguf",
+        enabled=True,
+        priority=80,
+        extra_params={
+            "hf_repo": "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
+            "hf_file": "tinyllama-1.1b-chat-v1.0.Q3_K_M.gguf",
+            "model_type": "llama",
+            "repetition_penalty": 1.15,
+            "repeat_last_n": 64,
+        }
+    ),
+    "local_tinyllama_q5": AIProviderConfig(
+        name="TinyLlama Q5_K (Quality)",
+        type="local_ctransformers",
+        model="tinyllama-1.1b-chat-v1.0.Q5_K_M.gguf",
+        enabled=True,
+        priority=70,
+        extra_params={
+            "hf_repo": "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
+            "hf_file": "tinyllama-1.1b-chat-v1.0.Q5_K_M.gguf",
+            "model_type": "llama",
+            "repetition_penalty": 1.15,
+            "repeat_last_n": 64,
+        }
+    ),
+    "local_mistral7b": AIProviderConfig(
+        name="Mistral 7B (Smart)",
+        type="local_ctransformers",
+        model="Mistral-7B-Instruct-v0.3.Q4_K_M.gguf",
+        enabled=True,
+        priority=55,
+        extra_params={
+            "hf_repo": "MaziyarPanahi/Mistral-7B-Instruct-v0.3-GGUF",
+            "hf_file": "Mistral-7B-Instruct-v0.3.Q4_K_M.gguf",
+            "model_type": "llama",
+            "template": "mistral",
+            "repetition_penalty": 1.1,
+            "repeat_last_n": 64,
+            "n_ctx": 4096,
+        }
+    ),
+    "local_tinyllama_q8": AIProviderConfig(
+        name="TinyLlama Q8_0 (Best)",
+        type="local_ctransformers",
+        model="tinyllama-1.1b-chat-v1.0.Q8_0.gguf",
+        enabled=True,
+        priority=60,
+        extra_params={
+            "hf_repo": "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
+            "hf_file": "tinyllama-1.1b-chat-v1.0.Q8_0.gguf",
+            "model_type": "llama",
+            "repetition_penalty": 1.15,
+            "repeat_last_n": 64,
+        }
+    ),
 }
 
 
@@ -257,6 +348,17 @@ def load_config(config_path: str = None) -> Config:
                 config.ui = UIConfig(**value)
             elif hasattr(config, key):
                 setattr(config, key, value)
+
+    # Set defaults if not configured - prefer TinyLlama for fast startup
+    if not config.active_provider:
+        if 'local_tinyllama' in config.providers:
+            config.active_provider = 'local_tinyllama'
+            config.default_model = config.providers['local_tinyllama'].model
+
+    # Disable Ollama by default (will show connection errors)
+    for k in ['ollama_local', 'ollama_free', 'ollama_coder']:
+        if k in config.providers:
+            config.providers[k].enabled = False
 
     # Ensure data directories exist
     Path(config.data_dir).mkdir(parents=True, exist_ok=True)

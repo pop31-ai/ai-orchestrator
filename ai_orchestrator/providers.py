@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 import aiohttp
 import logging
 
@@ -47,6 +48,7 @@ class CompletionOptions:
     temperature: float = 0.7
     max_tokens: int = 4096
     top_p: float = 1.0
+    top_k: int = 40
     frequency_penalty: float = 0.0
     presence_penalty: float = 0.0
     stop: List[str] = field(default_factory=list)
@@ -531,6 +533,165 @@ class OpenAICompatibleProvider(AIProvider):
         }
 
 
+class LocalCTransformersProvider(AIProvider):
+    """Local model provider using ctransformers (llama.cpp bindings)"""
+
+    CHAT_TEMPLATES = {
+        'llama': {
+            'system': "<|system|>\n{content}</s>\n",
+            'user': "<|user|>\n{content}</s>\n",
+            'assistant': "<|assistant|>\n{content}</s>\n",
+            'start': "",
+            'end': "<|assistant|>\n",
+        },
+        'chatml': {
+            'system': "<|im_start|>system\n{content}<|im_end|>\n",
+            'user': "<|im_start|>user\n{content}<|im_end|>\n",
+            'assistant': "<|im_start|>assistant\n{content}<|im_end|>\n",
+            'start': "<|im_start|>system\nYou are a helpful AI assistant.<|im_end|>\n",
+            'end': "<|im_start|>assistant\n",
+        },
+        'mistral': {
+            'system': "[INST] {content} [/INST]\n",
+            'user': "[INST] {content} [/INST]\n",
+            'assistant': "{content}</s>",
+            'start': "[INST] ",
+            'end': " [/INST]\n",
+        },
+    }
+
+    def __init__(self, config: 'AIProviderConfig'):
+        super().__init__(config)
+        self._executor = ThreadPoolExecutor(max_workers=1)
+        self._model = None
+        self._model_lock = asyncio.Lock()
+        self._model_path = None
+        self._template = self.CHAT_TEMPLATES.get(
+            config.extra_params.get('template', 'llama'),
+            self.CHAT_TEMPLATES['llama']
+        )
+        self._n_ctx = config.extra_params.get('n_ctx', 2048)
+        self._n_threads = config.extra_params.get('n_threads', 5)
+        self._hf_repo = config.extra_params.get('hf_repo', '')
+        self._hf_file = config.extra_params.get('hf_file', '')
+        self._cache_dir = config.extra_params.get('cache_dir', '')
+        self._repetition_penalty = config.extra_params.get('repetition_penalty', 1.15)
+        self._repeat_last_n = config.extra_params.get('repeat_last_n', 64)
+
+    async def initialize(self):
+        try:
+            from huggingface_hub import hf_hub_download
+            import ctransformers
+
+            if self._hf_repo and self._hf_file:
+                self._model_path = hf_hub_download(
+                    repo_id=self._hf_repo,
+                    filename=self._hf_file,
+                    cache_dir=self._cache_dir or None
+                )
+            elif self.config.base_url and os.path.exists(self.config.base_url):
+                self._model_path = self.config.base_url
+            else:
+                raise ValueError("No model path specified. Set hf_repo/hf_file or base_url to local GGUF.")
+
+            self._model = ctransformers.AutoModelForCausalLM.from_pretrained(
+                self._model_path,
+                model_type=self.config.extra_params.get('model_type', 'llama'),
+                context_length=self._n_ctx,
+                threads=self._n_threads,
+            )
+
+            logger.info(f"Local provider ready: {self._model_path}")
+            return True
+        except ImportError as e:
+            logger.error(f"Missing dependency: {e}. Install: pip install ctransformers huggingface-hub")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to init local model: {e}")
+            return False
+
+    def _format_prompt(self, messages: List[Message]) -> str:
+        prompt = self._template['start']
+        system_set = bool(self._template['start'])
+
+        for msg in messages:
+            role = msg.role
+            if role == 'system' and system_set:
+                continue
+            if role == 'system':
+                prompt += self._template['system'].format(content=msg.content)
+                system_set = True
+            elif role == 'user':
+                prompt += self._template['user'].format(content=msg.content)
+                system_set = True
+            elif role == 'assistant':
+                prompt += self._template['assistant'].format(content=msg.content)
+                system_set = True
+            elif role == 'tool':
+                prompt += self._template['user'].format(content=f"[Tool result for {msg.name or msg.tool_call_id}]: {msg.content}")
+                system_set = True
+
+        prompt += self._template['end']
+        return prompt
+
+    async def complete(self, messages: List[Message], options: CompletionOptions) -> CompletionResult:
+        if not self._model:
+            raise RuntimeError("Model not loaded")
+        prompt = self._format_prompt(messages)
+        loop = asyncio.get_event_loop()
+        max_new = min(options.max_tokens or 512, 200)
+        content = await loop.run_in_executor(
+            self._executor,
+            lambda: self._model(prompt, max_new_tokens=max_new,
+                temperature=options.temperature or 0.7, top_p=options.top_p or 0.9,
+                repetition_penalty=self._repetition_penalty, stop=['</s>', '<|im_end|>'], stream=False))
+        return CompletionResult(content=content.strip(), finish_reason="stop",
+            usage={"prompt_tokens": 0, "completion_tokens": 0})
+
+    async def stream_complete(self, messages: List[Message], options: CompletionOptions) -> AsyncGenerator[CompletionChunk, None]:
+        if not self._model:
+            raise RuntimeError("Model not loaded")
+        prompt = self._format_prompt(messages)
+        loop = asyncio.get_event_loop()
+
+        def _generate():
+            return self._model(prompt,                 max_new_tokens=min(options.max_tokens or 512, 200),
+                temperature=options.temperature or 0.7, top_p=options.top_p or 0.9,
+                repetition_penalty=self._repetition_penalty, stop=['</s>', '<|im_end|>'], stream=True)
+
+        generator = await loop.run_in_executor(self._executor, _generate)
+
+        chunk_id = str(uuid.uuid4())[:8]
+        async for token in self._async_iterate(generator):
+            if token:
+                yield CompletionChunk(content=token, finish_reason=None, chunk_id=chunk_id)
+
+        yield CompletionChunk(content="", finish_reason="stop", chunk_id=chunk_id)
+
+    async def _async_iterate(self, generator):
+        loop = asyncio.get_event_loop()
+        while True:
+            try:
+                token = await loop.run_in_executor(self._executor, lambda: next(generator))
+                yield token
+            except StopIteration:
+                break
+            except Exception:
+                break
+
+    async def list_models(self) -> List[str]:
+        return [self.config.model or os.path.basename(self._model_path or "")]
+
+    async def health_check(self) -> bool:
+        return self._model is not None
+
+    async def close(self):
+        self._model = None
+        self._executor.shutdown(wait=False)
+        import gc
+        gc.collect()
+
+
 class ProviderFactory:
     """Factory for creating AI providers"""
 
@@ -538,6 +699,7 @@ class ProviderFactory:
         'ollama': OllamaProvider,
         'ollama_remote': OllamaProvider,
         'openai_compatible': OpenAICompatibleProvider,
+        'local_ctransformers': LocalCTransformersProvider,
     }
 
     @classmethod
