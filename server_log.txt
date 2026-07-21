@@ -1,5 +1,0 @@
-LLM backend 'gguf' failed: Failed to create LLM 'llama' from 'C:\Users\e\.cache\ctransformers\Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf'.
-TinyLlama fallback also failed: Failed to create LLM 'llama' from 'C:\Users\e\.cache\ctransformers\Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf'.
-No LLM backend available — using fallback responses
-======== Running on http://127.0.0.1:8080 ========
-(Press CTRL+C to quit)

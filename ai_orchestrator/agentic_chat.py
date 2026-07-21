@@ -2206,10 +2206,13 @@ class LLMBackend:
             if not path:
                 cache_dir = Path.home() / ".cache" / "ctransformers"
                 if cache_dir.exists():
-                    for f in cache_dir.iterdir():
-                        if "tinyllama" in f.name.lower() and f.suffix == ".gguf":
-                            path = str(f)
-                            break
+                    # Prefer Q8_0 over Q4_K_M
+                    candidates = [f for f in cache_dir.iterdir() if "tinyllama" in f.name.lower() and f.suffix == ".gguf"]
+                    q8 = [f for f in candidates if "Q8" in f.name]
+                    if q8:
+                        path = str(q8[0])
+                    elif candidates:
+                        path = str(candidates[0])
             if not path:
                 raise FileNotFoundError("No TinyLlama model found. Download tinyllama-1.1b-chat-v1.0.Q2_K.gguf")
             from ctransformers import AutoConfig
@@ -2232,7 +2235,7 @@ class LLMBackend:
                 return "Error: could not start llama.cpp server"
         return await server.generate(prompt, max_tokens, temperature)
 
-    async def generate_stream_async(self, prompt: str, max_tokens: int = 100, temperature: float = 0.7):
+    async def generate_stream_async(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7):
         """Async streaming: TinyLlama via ctransformers, GGUF via llama.cpp server."""
         if self.backend_type == BackendType.TINYLLAMA:
             text = self.generate(prompt, max_tokens, temperature)
@@ -2254,7 +2257,7 @@ class LLMBackend:
         async for token in server.generate_stream(prompt, max_tokens, temperature):
             yield token
 
-    def generate(self, prompt: str, max_tokens: int = 100, temperature: float = 0.7) -> str:
+    def generate(self, prompt: str, max_tokens: int = 2048, temperature: float = 0.7) -> str:
         if self.backend_type == BackendType.TINYLLAMA:
             llm = self._get_tinyllama()
             return llm(prompt, max_new_tokens=max_tokens, temperature=temperature)
@@ -3887,6 +3890,11 @@ class VideoTools:
 
 # --- OpenAI-compatible /v1/chat/completions (for opencode.ai) ---
 
+_TOOL_CALL_RE = re.compile(
+    r'<tool_call>\s*<name>\s*(\w+)\s*</name>\s*<arguments>\s*(\{.*?\})\s*</arguments>\s*</tool_call>',
+    re.DOTALL
+)
+
 async def handle_v1_chat(request):
     """OpenAI-compatible chat completions endpoint wrapping TinyLlama."""
     try:
@@ -3898,20 +3906,82 @@ async def handle_v1_chat(request):
     if not messages:
         return web.json_response({"error": "no messages"}, status=400)
 
-    prompt = messages[-1].get("content", "")
     stream = data.get("stream", False)
+    tools = data.get("tools", [])
     orch = request.app["orchestrator"]
     llm = orch._llm
 
     if not llm:
         return web.json_response({"error": "no LLM backend"}, status=503)
 
-    max_tokens = min(data.get("max_tokens", 2048), 2048)
+    # Build structured prompt from messages
+    prompt_parts = []
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role == "system":
+            prompt_parts.append(f"System: {content}")
+        elif role == "user":
+            prompt_parts.append(f"User: {content}")
+        elif role == "assistant":
+            prompt_parts.append(f"Assistant: {content}")
+
+    # If tools are provided, inject them as instructions
+    if tools:
+        tool_desc = []
+        for t in tools:
+            if t.get("type") == "function":
+                fn = t.get("function", {})
+                name = fn.get("name", "unknown")
+                desc = fn.get("description", "")
+                params = fn.get("parameters", {})
+                props = params.get("properties", {})
+                args_desc = "; ".join(
+                    f"{k}: {v.get('description', v.get('type', '?'))}" for k, v in props.items()
+                )
+                tool_desc.append(f"- {name}: {desc} | args: {args_desc}")
+        if tool_desc:
+            tool_block = (
+                "Available tools — you MUST use them when asked to modify files:\n"
+                + "\n".join(tool_desc)
+                + "\n\n"
+                "To call a tool, output XML like this:\n"
+                "<tool_call>\n<name>tool_name</name>\n<arguments>{json args}</arguments>\n</tool_call>\n"
+                "Then the tool will be executed automatically."
+            )
+            # Inject after last system message or as new system message
+            prompt_parts.insert(0, f"System: {tool_block}")
+
+    prompt_parts.append("Assistant:")
+    prompt = "\n\n".join(prompt_parts)
+
+    max_tokens = min(data.get("max_tokens", 2048), 2048)  # TinyLlama max = 2048
     temperature = data.get("temperature", 0.7)
     try:
         text = llm.generate(prompt, max_tokens=max_tokens, temperature=temperature)
+        text = text.strip().lstrip("Assistant:").strip()
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
+
+    # Check for tool calls in output
+    tool_calls = []
+    for m in _TOOL_CALL_RE.finditer(text):
+        name = m.group(1)
+        args_str = m.group(2)
+        try:
+            args = json.loads(args_str)
+        except json.JSONDecodeError:
+            args = {"raw": args_str}
+        tool_calls.append({
+            "id": f"call_{uuid.uuid4().hex[:12]}",
+            "type": "function",
+            "function": {"name": name, "arguments": json.dumps(args)},
+        })
+        # Remove tool call XML from visible text
+        text = text[:m.start()] + text[m.end():]
+
+    text = text.strip()
+    finish_reason = "tool_calls" if tool_calls else "stop"
 
     if stream:
         resp = web.StreamResponse(
@@ -3919,17 +3989,27 @@ async def handle_v1_chat(request):
             headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache"},
         )
         await resp.prepare(request)
-        for chunk in [text[i:i+5] for i in range(0, len(text), 5)]:
-            sse = f"data: {json.dumps({'choices':[{'delta':{'content':chunk},'index':0}]})}\n\n"
+        if tool_calls:
+            # Stream tool call as a single chunk
+            delta = {"role": "assistant", "content": None, "tool_calls": tool_calls}
+            sse = f"data: {json.dumps({'choices':[{'delta':delta,'index':0,'finish_reason':'tool_calls'}]})}\n\n"
             await resp.write(sse.encode("utf-8"))
-            await asyncio.sleep(0.01)
+        else:
+            for chunk in [text[i:i+5] for i in range(0, len(text), 5)]:
+                delta = {"content": chunk}
+                await resp.write(f"data: {json.dumps({'choices':[{'delta':delta,'index':0}]})}\n\n".encode("utf-8"))
+                await asyncio.sleep(0.01)
         await resp.write(b"data: [DONE]\n\n")
         return resp
+
+    msg = {"role": "assistant", "content": text if text else None}
+    if tool_calls:
+        msg["tool_calls"] = tool_calls
 
     return web.json_response({
         "id": "chatcmpl-local",
         "object": "chat.completion",
-        "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+        "choices": [{"index": 0, "message": msg, "finish_reason": finish_reason}],
         "model": "tinyllama-local",
     })
 
