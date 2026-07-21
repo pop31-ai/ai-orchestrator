@@ -29,6 +29,7 @@ from .providers import (
 )
 from .history import HistoryManager, VirtualScrollManager, HistoryEntry, SessionSummary
 from .tools import register_builtin_tools
+from .checkpoint_system import Checkpoint
 
 __version__ = "1.0.0"
 __all__ = [
@@ -62,4 +63,5 @@ __all__ = [
     "HistoryEntry",
     "SessionSummary",
     "register_builtin_tools",
+    "Checkpoint",
 ]

@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "pid": 31616,
+  "created_at": "2026-07-21T14:13:32.988720+00:00",
+  "last_heartbeat": "2026-07-21T15:14:38.070537+00:00",
+  "agent": "system",
+  "goal": "Server shutdown",
+  "status": "done",
+  "progress_pct": 100,
+  "task_plan": [],
+  "context": {},
+  "notes": "Chat: researcher -> ... -> researcher",
+  "error": null,
+  "successors_available": []
+}

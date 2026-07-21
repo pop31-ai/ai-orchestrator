@@ -1,0 +1,22 @@
+{
+  "agent": "search_agent",
+  "session_id": "7a6efca8",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are an internet search specialist. Use 'search <query>' to find information on the web. Use 'find <query>' as an alternative. Summarize search results clearly with source citations. You can also: read file <path>, image info/analyze, video info/frame, pdf all/page. Generate: draw <desc>, create gif <desc>, create pdf <title> with <content>.",
+      "timestamp": "2026-07-20T19:30:58.977384"
+    },
+    {
+      "role": "user",
+      "content": "search latest AI news",
+      "timestamp": "2026-07-20T19:31:31.596878"
+    },
+    {
+      "role": "assistant",
+      "content": "Search results:\n- No results found",
+      "timestamp": "2026-07-20T19:31:31.873921"
+    }
+  ],
+  "saved_at": "2026-07-21T18:10:43.552789"
+}

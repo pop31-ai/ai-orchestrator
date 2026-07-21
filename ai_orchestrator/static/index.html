@@ -80,6 +80,34 @@ a{color:var(--accent);text-decoration:none}
 .img-frame img{max-width:192px;max-height:192px;border-radius:4px;border:1px solid var(--border);cursor:pointer}
 .img-frame img:hover{filter:brightness(1.1)}
 .frame-label{font-size:10px;color:var(--dim);margin-bottom:2px;font-family:monospace}
+
+/* History actions */
+.history-actions{position:relative;margin-left:auto}
+.btn-history{background:var(--surface);border:1px solid var(--border);color:var(--dim);padding:4px 10px;border-radius:4px;cursor:pointer;font-size:13px}
+.btn-history:hover{color:var(--text);border-color:var(--accent)}
+.history-menu{display:none;position:absolute;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px;z-index:200;min-width:160px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.history-menu.show{display:flex;flex-direction:column;gap:2px}
+.history-menu button{background:none;border:none;color:var(--text);padding:7px 12px;font-size:12px;cursor:pointer;border-radius:4px;text-align:left;white-space:nowrap}
+.history-menu button:hover{background:rgba(88,166,255,.1)}
+.history-menu button.danger{color:var(--red)}
+.history-menu button.danger:hover{background:rgba(248,81,73,.1)}
+
+/* Search modal */
+.search-results{max-height:400px;overflow-y:auto;margin:8px 0}
+.search-result{padding:6px 8px;border-radius:4px;font-size:12px;margin-bottom:4px;cursor:pointer;border:1px solid transparent}
+.search-result:hover{background:rgba(88,166,255,.05);border-color:var(--border)}
+.search-result .s-agent{color:var(--accent);font-weight:600}
+.search-result .s-role{color:var(--dim);font-size:10px}
+.search-result .s-content{color:var(--text);margin-top:2px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.search-result .s-time{color:var(--dim);font-size:9px;margin-top:2px}
+
+/* Night mode toggle */
+.night-toggle{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--dim);cursor:pointer;margin-left:8px;user-select:none}
+.night-toggle input{display:none}
+.toggle-slider{width:28px;height:14px;background:var(--border);border-radius:7px;position:relative;transition:background .2s}
+.toggle-slider::after{content:'';position:absolute;width:10px;height:10px;border-radius:50%;background:var(--text);top:2px;left:2px;transition:transform .2s}
+.night-toggle input:checked+.toggle-slider{background:var(--accent)}
+.night-toggle input:checked+.toggle-slider::after{transform:translateX(14px)}
 </style>
 </head>
 <body>
@@ -87,6 +115,20 @@ a{color:var(--accent);text-decoration:none}
   <div class="topbar">
     <h1>AI Orchestrator</h1>
     <span class="status" id="statusText">Ready</span>
+    <div class="history-actions">
+      <button class="btn-history" onclick="toggleHistoryMenu()" title="History">📋</button>
+      <div class="history-menu" id="historyMenu">
+        <button onclick="exportHistory('json')">Export JSON</button>
+        <button onclick="exportHistory('csv')">Export CSV</button>
+        <button onclick="exportHistory('md')">Export Markdown</button>
+        <button onclick="openSearchModal()">Search History</button>
+        <button onclick="resetHistory()" class="danger">Reset History</button>
+      </div>
+      <label class="night-toggle" title="Night Mode (throttle at night)">
+        🌙 <input type="checkbox" id="nightModeToggle" onchange="toggleNightMode(this.checked)">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
   </div>
   <div class="tabs" id="tabsBar">
     <button class="tab-add" onclick="openModal()" title="New agent tab">+</button>
@@ -110,6 +152,7 @@ a{color:var(--accent);text-decoration:none}
       <span><kbd>read file</kbd> path</span>
       <span><kbd>list files</kbd></span>
       <span><kbd>process list</kbd></span>
+      <span><kbd>ssh</kbd> user@host cmd</span>
     </div>
   </div>
 </div>
@@ -131,6 +174,21 @@ a{color:var(--accent);text-decoration:none}
   </div>
 </div>
 
+<!-- Search History Modal -->
+<div class="modal-overlay" id="searchModal">
+  <div class="modal" style="width:500px">
+    <h2>Search History</h2>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <input id="searchQuery" placeholder="Search query..." onkeydown="if(event.key==='Enter')doSearch()">
+      <button onclick="doSearch()" class="btn-send" style="padding:7px 14px;font-size:12px">Search</button>
+    </div>
+    <div class="search-results" id="searchResults"></div>
+    <div class="actions">
+      <button onclick="closeSearchModal()" style="background:var(--border);color:var(--text)">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const AGENTS = {};
 let tabs = new Map();
@@ -138,10 +196,6 @@ let activeTabId = null;
 let abortCtrl = null;
 
 // --- Init ---
-document.addEventListener('DOMContentLoaded', async () => {
-  await loadAgents();
-  renderTabs();
-});
 
 async function loadAgents() {
   try {
@@ -149,6 +203,12 @@ async function loadAgents() {
     const data = await res.json();
     for (const [name, info] of Object.entries(data.agents)) {
       AGENTS[name] = info;
+    }
+    // Auto-create tabs for all default agents (no switch — first one becomes active)
+    for (const name of Object.keys(data.agents)) {
+      if (![...tabs.values()].some(t => t.agent === name)) {
+        createTab(name, false);
+      }
     }
   } catch(e) {
     console.error('Failed to load agents:', e);
@@ -168,10 +228,10 @@ function populateModalSelect() {
 }
 
 // --- Tabs ---
-function createTab(agentName) {
+function createTab(agentName, doSwitch = true) {
   const id = 't' + Date.now() + Math.random().toString(36).slice(2,6);
   tabs.set(id, { id, agent: agentName, history: [], sending: false });
-  switchTab(id);
+  if (doSwitch || tabs.size === 1) switchTab(id);
   renderTabs();
   return id;
 }
@@ -183,7 +243,6 @@ function switchTab(tabId) {
   document.getElementById('statusText').textContent = 'Agent: ' + tab.agent;
   document.getElementById('msgInput').disabled = false;
   document.getElementById('sendBtn').disabled = false;
-  document.getElementById('emptyState').style.display = 'none';
   renderMessages(tab);
   renderTabs();
   document.getElementById('msgInput').focus();
@@ -371,7 +430,7 @@ async function sendMsg() {
               addToolMsg(typeof r === 'string' ? r : JSON.stringify(r));
             }
           } else if (data.done) {
-            // done
+            // finalize happens below
           } else if (data.error) {
             addErrorMsg(data.error);
           }
@@ -379,8 +438,13 @@ async function sendMsg() {
       }
     }
 
+    // Append only if not already done
     if (fullText) {
-      tab.history.push({ role: 'agent', content: fullText, agent: tab.agent, timestamp: new Date().toISOString() });
+      const last = tab.history[tab.history.length - 1];
+      if (last?.role !== 'agent'  || last?.content !== fullText) {
+        tab.history.push({ role: 'agent', content: fullText, agent: tab.agent, timestamp: new Date().toISOString() });
+        renderMessages(tab);
+      }
     }
   } catch(e) {
     if (e.name === 'AbortError') {
@@ -441,6 +505,126 @@ function escapeHtml(t) {
   const d = document.createElement('div');
   d.textContent = t;
   return d.innerHTML;
+}
+
+// --- History actions ---
+function toggleHistoryMenu() {
+  document.getElementById('historyMenu').classList.toggle('show');
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.history-actions')) {
+    document.getElementById('historyMenu').classList.remove('show');
+  }
+});
+
+// --- Night Mode ---
+async function toggleNightMode(checked) {
+  try {
+    const res = await fetch('/api/night-mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: checked, start_hour: 22, end_hour: 8, max_semaphore: 2 }),
+    });
+    const data = await res.json();
+    if (data.is_night) {
+      addToolMsg('🌙 Night mode active — throttling resources');
+    }
+  } catch(e) {
+    addErrorMsg('Night mode toggle failed: ' + e.message);
+  }
+}
+
+// Load night mode state on init
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadAgents();
+  renderTabs();
+  try {
+    const res = await fetch('/api/night-mode');
+    const data = await res.json();
+    if (data.enabled) document.getElementById('nightModeToggle').checked = true;
+    if (data.is_night) addToolMsg('🌙 Night mode is active');
+  } catch(e) { /* ignore */ }
+});
+
+async function exportHistory(format) {
+  const agent = tabs.get(activeTabId)?.agent || '';
+  const url = `/api/history/export?format=${format}` + (agent ? `&agent=${agent}` : '');
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `history_${agent || 'all'}.${format}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch(e) {
+    addErrorMsg('Export failed: ' + e.message);
+  }
+  document.getElementById('historyMenu').classList.remove('show');
+}
+
+function openSearchModal() {
+  document.getElementById('searchQuery').value = '';
+  document.getElementById('searchResults').innerHTML = '';
+  document.getElementById('searchModal').classList.add('show');
+  document.getElementById('historyMenu').classList.remove('show');
+}
+
+function closeSearchModal() {
+  document.getElementById('searchModal').classList.remove('show');
+}
+
+async function doSearch() {
+  const q = document.getElementById('searchQuery').value.trim();
+  if (!q) return;
+  const resultsDiv = document.getElementById('searchResults');
+  resultsDiv.innerHTML = '<div style="color:var(--dim);font-size:12px">Searching...</div>';
+  try {
+    const res = await fetch(`/api/history/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if (!data.results || !data.results.length) {
+      resultsDiv.innerHTML = '<div style="color:var(--dim);font-size:12px">No results found</div>';
+      return;
+    }
+    resultsDiv.innerHTML = `<div style="color:var(--dim);font-size:11px;margin-bottom:6px">${data.count} result(s)</div>`;
+    for (const r of data.results) {
+      const div = document.createElement('div');
+      div.className = 'search-result';
+      div.innerHTML = `<div><span class="s-agent">${r.agent}</span> <span class="s-role">[${r.role}]</span> <span class="s-time">${r.timestamp || ''}</span></div><div class="s-content">${escapeHtml(r.content)}</div>`;
+      div.onclick = () => {
+        closeSearchModal();
+        // Switch to matching agent tab
+        for (const [id, tab] of tabs) {
+          if (tab.agent === r.agent) { switchTab(id); break; }
+        }
+      };
+      resultsDiv.appendChild(div);
+    }
+  } catch(e) {
+    resultsDiv.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
+  }
+}
+
+async function resetHistory() {
+  if (!confirm('Reset history for this agent? This cannot be undone.')) return;
+  const agent = tabs.get(activeTabId)?.agent;
+  if (!agent) return;
+  try {
+    const res = await fetch('/api/history/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent }),
+    });
+    const data = await res.json();
+    addToolMsg(`History reset: ${data.reset} file(s) cleared`);
+    // Clear local tab history
+    const tab = tabs.get(activeTabId);
+    if (tab) tab.history = [{ role: 'system', content: 'History reset' }];
+    renderMessages(tab);
+  } catch(e) {
+    addErrorMsg('Reset failed: ' + e.message);
+  }
+  document.getElementById('historyMenu').classList.remove('show');
 }
 </script>
 </body>

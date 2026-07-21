@@ -1,0 +1,22 @@
+{
+  "agent": "pr_agent",
+  "session_id": "0d975390",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a PR and marketing specialist. Create promotional content:\n- draw <desc> [WxH] — generate promotional image\n- create gif <desc> [N frames] — animated ad GIF\n- create video <desc> [Ns] — promotional video\n- create pdf <title> with <content> — press release / brochure PDF\n- draw diagram gantt — campaign timeline\n- compose <style> [Ns] — background music\n- create gost <title> — formal report\nAlso: search <query>, run <cmd>, read file <path>.",
+      "timestamp": "2026-07-20T19:30:58.977384"
+    },
+    {
+      "role": "user",
+      "content": "draw promotional banner 300x200",
+      "timestamp": "2026-07-20T19:31:37.846472"
+    },
+    {
+      "role": "assistant",
+      "content": "[IMAGE] Generated: generated\\image_193137.png (300x200, 2797B)",
+      "timestamp": "2026-07-20T19:31:37.905753"
+    }
+  ],
+  "saved_at": "2026-07-21T18:10:43.557355"
+}
